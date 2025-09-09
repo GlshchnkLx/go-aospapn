@@ -1,7 +1,26 @@
+// # APN Object
+//
+// File apnobject provides structures and utilities for handling APN (Access Point Name)
+// configuration data commonly used in mobile network settings. It supports XML marshaling
+// and unmarshaling, validation, and cloning of APN configurations.
+//
+// The package defines a modular APN object composed of several units:
+//   - Root: Carrier, MCC, MNC identification
+//   - Base: APN name, type, profile ID
+//   - Auth: Authentication type, username, password
+//   - Bearer: Protocol, roaming protocol, MTU, server
+//   - Proxy: Proxy server and port
+//   - MMS: MMSC, proxy, and port
+//   - MVNO: MVNO type and match data
+//   - Limit: Connection limits
+//   - Other: Miscellaneous flags and settings
+//
+// Each unit implements the APNObjectInterface, supporting Clone and Validate methods.
+// The main APNObject type aggregates all units and handles XML serialization via
+// a helper struct to manage optional fields correctly.
 package apnxml
 
 import (
-	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"strings"
@@ -11,17 +30,27 @@ import (
 // APNObject Interface
 //--------------------------------------------------------------------------------//
 
-type APNObjectInterface interface {
-	IsExist() bool
+// APNObjectInterface defines the contract for APN configuration units.
+// Each unit must implement Clone to produce a deep copy and Validate to check
+// if the unit contains sufficient/valid data.
+type APNObjectInterface[Type any] interface {
+	Clone() Type
+	Validate() bool
 }
 
 //--------------------------------------------------------------------------------//
 // APNObject Core & Helper
 //--------------------------------------------------------------------------------//
 
+// APNObject represents a complete APN configuration, composed of optional sub-units.
+// It embeds APNObjectRoot and optionally includes Base, Auth, Bearer, Proxy, Mms, Mvno,
+// Limit, and Other configuration blocks. It also maintains a map for grouping by type.
+//
+// Implements APNObjectInterface[APNObject] and custom XML marshaling/unmarshaling.
 type APNObject struct {
-	*APNObjectRoot
+	APNObjectInterface[APNObject] `json:"-" xml:"-"`
 
+	*APNObjectRoot
 	Base   *APNObjectBase   `json:"base,omitempty"`
 	Auth   *APNObjectAuth   `json:"auth,omitempty"`
 	Bearer *APNObjectBearer `json:"bearer,omitempty"`
@@ -34,6 +63,9 @@ type APNObject struct {
 	GroupMapByType map[string]APNObject `json:"groupMap,omitempty"`
 }
 
+// helperAPNObject is an internal helper struct used to correctly marshal/unmarshal
+// optional embedded fields in APNObject via xml.Encoder/Decoder.
+// All fields are marked with `xml:",omitempty"` to omit empty values in XML output.
 type helperAPNObject struct {
 	*APNObjectRoot   `xml:",omitempty"`
 	*APNObjectBase   `xml:",omitempty"`
@@ -46,52 +78,19 @@ type helperAPNObject struct {
 	*APNObjectOther  `xml:",omitempty"`
 }
 
-func (apnObject APNObject) String() string {
-	jsonData, err := json.MarshalIndent(apnObject, "", "\t")
-	if err != nil {
-		return fmt.Sprintf("error: %v", err)
-	}
-
-	return string(jsonData)
-}
-
+// MarshalXML implements custom XML marshaling for APNObject.
+// It uses helperAPNObject to ensure optional fields are omitted when nil.
 func (apnObject APNObject) MarshalXML(xmlEncoder *xml.Encoder, xmlStart xml.StartElement) error {
-	var _apnObject helperAPNObject
-
-	if apnObject.APNObjectRoot.IsExist() {
-		_apnObject.APNObjectRoot = apnObject.APNObjectRoot
-	}
-
-	if apnObject.Base.IsExist() {
-		_apnObject.APNObjectBase = apnObject.Base
-	}
-
-	if apnObject.Auth.IsExist() {
-		_apnObject.APNObjectAuth = apnObject.Auth
-	}
-
-	if apnObject.Bearer.IsExist() {
-		_apnObject.APNObjectBearer = apnObject.Bearer
-	}
-
-	if apnObject.Proxy.IsExist() {
-		_apnObject.APNObjectProxy = apnObject.Proxy
-	}
-
-	if apnObject.Mms.IsExist() {
-		_apnObject.APNObjectMms = apnObject.Mms
-	}
-
-	if apnObject.Mvno.IsExist() {
-		_apnObject.APNObjectMvno = apnObject.Mvno
-	}
-
-	if apnObject.Limit.IsExist() {
-		_apnObject.APNObjectLimit = apnObject.Limit
-	}
-
-	if apnObject.Other.IsExist() {
-		_apnObject.APNObjectOther = apnObject.Other
+	_apnObject := helperAPNObject{
+		APNObjectRoot:   helperApnPointerClone(apnObject.APNObjectRoot),
+		APNObjectBase:   helperApnPointerClone(apnObject.Base),
+		APNObjectAuth:   helperApnPointerClone(apnObject.Auth),
+		APNObjectBearer: helperApnPointerClone(apnObject.Bearer),
+		APNObjectProxy:  helperApnPointerClone(apnObject.Proxy),
+		APNObjectMms:    helperApnPointerClone(apnObject.Mms),
+		APNObjectMvno:   helperApnPointerClone(apnObject.Mvno),
+		APNObjectLimit:  helperApnPointerClone(apnObject.Limit),
+		APNObjectOther:  helperApnPointerClone(apnObject.Other),
 	}
 
 	err := xmlEncoder.EncodeElement(_apnObject, xmlStart)
@@ -102,6 +101,8 @@ func (apnObject APNObject) MarshalXML(xmlEncoder *xml.Encoder, xmlStart xml.Star
 	return nil
 }
 
+// UnmarshalXML implements custom XML unmarshaling for APNObject.
+// It decodes into a helperAPNObject and then assigns cloned pointers to the receiver.
 func (apnPointer *APNObject) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.StartElement) error {
 	var _apnObject helperAPNObject
 
@@ -110,55 +111,36 @@ func (apnPointer *APNObject) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.
 		return err
 	}
 
-	if _apnObject.APNObjectRoot.IsExist() {
-		apnPointer.APNObjectRoot = _apnObject.APNObjectRoot
-	}
-
-	if _apnObject.APNObjectBase.IsExist() {
-		apnPointer.Base = _apnObject.APNObjectBase
-	}
-
-	if _apnObject.APNObjectAuth.IsExist() {
-		apnPointer.Auth = _apnObject.APNObjectAuth
-	}
-
-	if _apnObject.APNObjectBearer.IsExist() {
-		apnPointer.Bearer = _apnObject.APNObjectBearer
-	}
-
-	if _apnObject.APNObjectProxy.IsExist() {
-		apnPointer.Proxy = _apnObject.APNObjectProxy
-	}
-
-	if _apnObject.APNObjectMms.IsExist() {
-		apnPointer.Mms = _apnObject.APNObjectMms
-	}
-
-	if _apnObject.APNObjectMvno.IsExist() {
-		apnPointer.Mvno = _apnObject.APNObjectMvno
-	}
-
-	if _apnObject.APNObjectLimit.IsExist() {
-		apnPointer.Limit = _apnObject.APNObjectLimit
-	}
-
-	if _apnObject.APNObjectOther.IsExist() {
-		apnPointer.Other = _apnObject.APNObjectOther
-	}
+	apnPointer.APNObjectRoot = helperApnPointerClone(_apnObject.APNObjectRoot)
+	apnPointer.Base = helperApnPointerClone(_apnObject.APNObjectBase)
+	apnPointer.Auth = helperApnPointerClone(_apnObject.APNObjectAuth)
+	apnPointer.Bearer = helperApnPointerClone(_apnObject.APNObjectBearer)
+	apnPointer.Proxy = helperApnPointerClone(_apnObject.APNObjectProxy)
+	apnPointer.Mms = helperApnPointerClone(_apnObject.APNObjectMms)
+	apnPointer.Mvno = helperApnPointerClone(_apnObject.APNObjectMvno)
+	apnPointer.Limit = helperApnPointerClone(_apnObject.APNObjectLimit)
+	apnPointer.Other = helperApnPointerClone(_apnObject.APNObjectOther)
 
 	return nil
 }
 
-func (apnObject APNObject) Clone() (_apnObject APNObject) {
-	jsonData, err := json.Marshal(apnObject)
-	if err != nil {
-		panic(err)
-	}
+// Validate checks whether the APNObject is valid by delegating to its Root unit.
+// A valid APN must have non-nil Mcc and Mnc in its root.
+func (apnObject APNObject) Validate() bool {
+	return apnObject.APNObjectRoot.Validate()
+}
 
-	err = json.Unmarshal(jsonData, &_apnObject)
-	if err != nil {
-		panic(err)
-	}
+// Clone creates a deep copy of the APNObject, cloning all its sub-units.
+func (apnObject APNObject) Clone() (_apnObject APNObject) {
+	_apnObject.APNObjectRoot = helperApnPointerClone(apnObject.APNObjectRoot)
+	_apnObject.Base = helperApnPointerClone(apnObject.Base)
+	_apnObject.Auth = helperApnPointerClone(apnObject.Auth)
+	_apnObject.Bearer = helperApnPointerClone(apnObject.Bearer)
+	_apnObject.Proxy = helperApnPointerClone(apnObject.Proxy)
+	_apnObject.Mms = helperApnPointerClone(apnObject.Mms)
+	_apnObject.Mvno = helperApnPointerClone(apnObject.Mvno)
+	_apnObject.Limit = helperApnPointerClone(apnObject.Limit)
+	_apnObject.Other = helperApnPointerClone(apnObject.Other)
 
 	return
 }
@@ -167,8 +149,10 @@ func (apnObject APNObject) Clone() (_apnObject APNObject) {
 // APN Unit Root
 //--------------------------------------------------------------------------------//
 
+// APNObjectRoot contains the core identifying fields of an APN: carrier name, carrier ID, MCC, and MNC.
+// It is the minimal required unit for a valid APN configuration.
 type APNObjectRoot struct {
-	APNObjectInterface `json:"-" xml:"-"`
+	APNObjectInterface[APNObjectRoot] `json:"-" xml:"-"`
 
 	Carrier   string `json:"carrierName" xml:"carrier,attr,omitempty"`
 	CarrierID *int   `json:"carrierID,omitempty"   xml:"carrier_id,attr,omitempty"`
@@ -176,7 +160,24 @@ type APNObjectRoot struct {
 	Mnc       *int   `json:"mnc,omitempty"         xml:"mnc,attr,omitempty"`
 }
 
-func (apnPointerRoot *APNObjectRoot) IsExist() bool {
+// Clone creates a deep copy of APNObjectRoot.
+// Returns nil if the root is invalid (missing MCC/MNC).
+func (apnPointerRoot *APNObjectRoot) Clone() (_apnPointerRoot *APNObjectRoot) {
+	if apnPointerRoot.Validate() {
+		_apnPointerRoot = &APNObjectRoot{
+			Carrier:   apnPointerRoot.Carrier,
+			CarrierID: helperClonePointer(apnPointerRoot.CarrierID),
+			Mcc:       helperClonePointer(apnPointerRoot.Mcc),
+			Mnc:       helperClonePointer(apnPointerRoot.Mnc),
+		}
+	}
+
+	return
+}
+
+// Validate checks if APNObjectRoot has valid MCC and MNC fields.
+// Required for the APN to be considered minimally valid.
+func (apnPointerRoot *APNObjectRoot) Validate() bool {
 	if apnPointerRoot != nil && (apnPointerRoot.Mcc != nil && apnPointerRoot.Mnc != nil) {
 		return true
 	}
@@ -184,52 +185,81 @@ func (apnPointerRoot *APNObjectRoot) IsExist() bool {
 	return false
 }
 
-var _APNObjectRootCarrierWordMask = map[string]bool{
-	"internet": false,
-	"5g":       false,
-	"4g":       false,
-	"3g":       false,
-	"2g":       false,
-	"nsa":      false,
-	"sa":       false,
-	"lte":      false,
-	"wap":      false,
-	"gprs":     false,
-	"web":      false,
+// apnRootCarrierWordMask is a set of common carrier-related keywords to be filtered
+// out when cleaning up the carrier name via GetCarrier().
+var apnRootCarrierWordMask = map[string]bool{
+	"2g":   true,
+	"3g":   true,
+	"4g":   true,
+	"5g":   true,
+	"lte":  true,
+	"nsa":  true,
+	"sa":   true,
+	"gprs": true,
+
+	"none":        true,
+	"default":     true,
+	"mms":         true,
+	"supl":        true,
+	"dun":         true,
+	"hipri":       true,
+	"fota":        true,
+	"ims":         true,
+	"cbs":         true,
+	"ia":          true,
+	"emergency":   true,
+	"mcx":         true,
+	"xcap":        true,
+	"vsim":        true,
+	"bip":         true,
+	"enterprise":  true,
+	"rcs":         true,
+	"oem_paid":    true,
+	"oem_private": true,
+
+	"internet": true,
+	"data":     true,
+	"web":      true,
+	"wap":      true,
+	"wifi":     true,
+	"vowifi":   true,
+	"volte":    true,
+	"hotspot":  true,
+	"tether":   true,
+	"ota":      true,
+	"admin":    true,
+	"ut":       true,
+
+	"-": true,
 }
 
-func init() {
-	for _, value := range _APNTypeBaseTypeMapByIndex {
-		_APNObjectRootCarrierWordMask[value] = false
-	}
-}
-
+// GetCarrier returns a cleaned-up version of the carrier name by removing common
+// technical or generic keywords found in apnRootCarrierWordMask.
+// Splits the name by common separators and filters out masked words.
 func (apnRoot APNObjectRoot) GetCarrier() string {
 	var (
 		apnRootCarrierString     = apnRoot.Carrier
-		apnRootCarrierWordArray  = strings.Split(strings.TrimSpace(apnRootCarrierString), " ")
-		_apnRootCarrierWordArray = []string{}
+		apnRootCarrierWordArray  []string
+		_apnRootCarrierWordArray []string
+
+		carrierSeparatorArray = []string{" ", "-", "_", ".", ",", ":", ";", "|"}
 	)
 
-	if strings.Contains(apnRootCarrierString, " ") {
-		apnRootCarrierWordArray = strings.Split(apnRootCarrierString, " ")
-	} else if strings.Contains(apnRootCarrierString, ":") {
-		apnRootCarrierWordArray = strings.Split(apnRootCarrierString, ":")
-	} else if strings.Contains(apnRootCarrierString, ".") {
-		apnRootCarrierWordArray = strings.Split(apnRootCarrierString, ".")
-	} else if strings.Contains(apnRootCarrierString, "_") {
-		apnRootCarrierWordArray = strings.Split(apnRootCarrierString, "_")
-	} else if strings.Contains(apnRootCarrierString, "-") {
-		apnRootCarrierWordArray = strings.Split(apnRootCarrierString, "-")
-	} else {
-		return apnRootCarrierString
+	for _, carrierSeparator := range carrierSeparatorArray {
+		if strings.Contains(apnRootCarrierString, carrierSeparator) {
+			apnRootCarrierWordArray = strings.Split(apnRootCarrierString, carrierSeparator)
+			break
+		}
+	}
+
+	if len(apnRootCarrierWordArray) == 0 {
+		apnRootCarrierWordArray = append(apnRootCarrierWordArray, apnRootCarrierString)
 	}
 
 	for _, apnRootCarrierWord := range apnRootCarrierWordArray {
-		apnRootCarrierWord = strings.Trim(apnRootCarrierWord, "-_.,:; 0123456789")
+		_apnRootCarrierWord := strings.TrimSpace(strings.ToLower(apnRootCarrierWord))
 
-		_, ok := _APNObjectRootCarrierWordMask[strings.ToLower(apnRootCarrierWord)]
-		if len(apnRootCarrierWord) > 0 && !ok {
+		if !apnRootCarrierWordMask[_apnRootCarrierWord] {
 			_apnRootCarrierWordArray = append(_apnRootCarrierWordArray, apnRootCarrierWord)
 		}
 	}
@@ -241,15 +271,29 @@ func (apnRoot APNObjectRoot) GetCarrier() string {
 	return strings.Join(_apnRootCarrierWordArray, " ")
 }
 
+// GetID returns a unique identifier string for the APN, combining CarrierID (if present)
+// and PLMN (Public Land Mobile Network) code in the format "CID:X;PLMN:YYYYY;".
 func (apnRoot APNObjectRoot) GetID() string {
+	var (
+		apnRootID string
+	)
+
 	if apnRoot.CarrierID != nil {
-		return fmt.Sprintf("CID:%d", *apnRoot.CarrierID)
+		apnRootID += fmt.Sprintf("CID:%d;", *apnRoot.CarrierID)
 	}
 
-	return fmt.Sprintf("PLMN:%s", apnRoot.GetPLMN())
+	apnRootID += fmt.Sprintf("PLMN:%s;", apnRoot.GetPLMN())
+
+	return apnRootID
 }
 
+// GetPLMN returns the PLMN (Public Land Mobile Network) code as a 5-digit string
+// formatted as "MMCCNN" (3-digit MCC + 2-digit MNC). Returns "00000" if MCC or MNC is nil.
 func (apnRoot APNObjectRoot) GetPLMN() string {
+	if apnRoot.Mcc == nil || apnRoot.Mnc == nil {
+		return "00000"
+	}
+
 	return fmt.Sprintf("%03d%02d", *apnRoot.Mcc, *apnRoot.Mnc)
 }
 
@@ -257,17 +301,41 @@ func (apnRoot APNObjectRoot) GetPLMN() string {
 // APN Unit Base
 //--------------------------------------------------------------------------------//
 
+// APNObjectBase contains basic APN settings: the APN string, connection type, and profile ID.
 type APNObjectBase struct {
-	APNObjectInterface `json:"-" xml:"-"`
+	APNObjectInterface[APNObjectBase] `json:"-" xml:"-"`
 
 	Apn       *string          `json:"apn,omitempty"       xml:"apn,attr,omitempty"`
 	Type      *APNTypeBaseType `json:"type,omitempty" xml:"type,attr,omitempty"`
 	ProfileID *string          `json:"profileID,omitempty" xml:"profile_id,attr,omitempty"`
 }
 
-func (apnPointerBase *APNObjectBase) IsExist() bool {
-	if apnPointerBase != nil && (apnPointerBase.Apn != nil || apnPointerBase.Type != nil || apnPointerBase.ProfileID != nil) {
-		return true
+// Clone creates a deep copy of APNObjectBase.
+// Returns nil if the base is invalid (all fields nil).
+func (apnPointerBase *APNObjectBase) Clone() (_apnPointerBase *APNObjectBase) {
+	if apnPointerBase.Validate() {
+		_apnPointerBase = &APNObjectBase{
+			Apn:       helperClonePointer(apnPointerBase.Apn),
+			Type:      helperClonePointer(apnPointerBase.Type),
+			ProfileID: helperClonePointer(apnPointerBase.ProfileID),
+		}
+	}
+
+	return
+}
+
+// Validate checks if APNObjectBase has at least one non-nil field.
+// If Apn is set but Type is nil, it auto-assigns APNTYPE_BASE_TYPE_DEFAULT.
+func (apnPointerBase *APNObjectBase) Validate() bool {
+	if apnPointerBase != nil {
+		if apnPointerBase.Apn != nil && apnPointerBase.Type == nil {
+			var value = APNTYPE_BASE_TYPE_DEFAULT
+			apnPointerBase.Type = &value
+		}
+
+		if apnPointerBase.Apn != nil || apnPointerBase.Type != nil || apnPointerBase.ProfileID != nil {
+			return true
+		}
 	}
 
 	return false
@@ -277,15 +345,32 @@ func (apnPointerBase *APNObjectBase) IsExist() bool {
 // APN Unit Auth
 //--------------------------------------------------------------------------------//
 
+// APNObjectAuth contains authentication settings: type, username, and password.
 type APNObjectAuth struct {
-	APNObjectInterface `json:"-" xml:"-"`
+	APNObjectInterface[APNObjectAuth] `json:"-" xml:"-"`
 
 	Type     *APNTypeAuthType `json:"type,omitempty" xml:"authtype,attr,omitempty"`
 	Username *string          `json:"username,omitempty" xml:"user,attr,omitempty"`
 	Password *string          `json:"password,omitempty" xml:"password,attr,omitempty"`
 }
 
-func (apnPointerAuth *APNObjectAuth) IsExist() bool {
+// Clone creates a deep copy of APNObjectAuth.
+// Returns nil if validation fails.
+func (apnPointerAuth *APNObjectAuth) Clone() (_apnPointerAuth *APNObjectAuth) {
+	if apnPointerAuth.Validate() {
+		_apnPointerAuth = &APNObjectAuth{
+			Type:     helperClonePointer(apnPointerAuth.Type),
+			Username: helperClonePointer(apnPointerAuth.Username),
+			Password: helperClonePointer(apnPointerAuth.Password),
+		}
+	}
+
+	return
+}
+
+// Validate checks if authentication type is set and ensures that if username or password
+// is provided, both are non-nil (empty string is allowed).
+func (apnPointerAuth *APNObjectAuth) Validate() bool {
 	if apnPointerAuth != nil {
 		if apnPointerAuth.Type != nil {
 			if apnPointerAuth.Username != nil || apnPointerAuth.Password != nil {
@@ -311,8 +396,9 @@ func (apnPointerAuth *APNObjectAuth) IsExist() bool {
 // APN Unit Bearer
 //--------------------------------------------------------------------------------//
 
+// APNObjectBearer contains bearer-level settings: protocol, roaming protocol, MTU, and server.
 type APNObjectBearer struct {
-	APNObjectInterface `json:"-" xml:"-"`
+	APNObjectInterface[APNObjectBearer] `json:"-" xml:"-"`
 
 	Type        *APNTypeBearerProtocol `json:"type,omitempty"         xml:"protocol,attr,omitempty"`
 	TypeRoaming *APNTypeBearerProtocol `json:"typeRoaming,omitempty"  xml:"roaming_protocol,attr,omitempty"`
@@ -320,7 +406,23 @@ type APNObjectBearer struct {
 	Server      *string                `json:"server,omitempty"       xml:"server,attr,omitempty"`
 }
 
-func (apnPointerBearer *APNObjectBearer) IsExist() bool {
+// Clone creates a deep copy of APNObjectBearer.
+// Returns nil if validation fails.
+func (apnPointerBearer *APNObjectBearer) Clone() (_apnPointerBearer *APNObjectBearer) {
+	if apnPointerBearer.Validate() {
+		_apnPointerBearer = &APNObjectBearer{
+			Type:        helperClonePointer(apnPointerBearer.Type),
+			TypeRoaming: helperClonePointer(apnPointerBearer.TypeRoaming),
+			Mtu:         helperClonePointer(apnPointerBearer.Mtu),
+			Server:      helperClonePointer(apnPointerBearer.Server),
+		}
+	}
+
+	return
+}
+
+// Validate checks if at least one of Type or TypeRoaming is set.
+func (apnPointerBearer *APNObjectBearer) Validate() bool {
 	if apnPointerBearer != nil && (apnPointerBearer.Type != nil || apnPointerBearer.TypeRoaming != nil) {
 		return true
 	}
@@ -332,14 +434,29 @@ func (apnPointerBearer *APNObjectBearer) IsExist() bool {
 // APN Unit Proxy
 //--------------------------------------------------------------------------------//
 
+// APNObjectProxy contains proxy server settings: server address and port.
 type APNObjectProxy struct {
-	APNObjectInterface `json:"-" xml:"-"`
+	APNObjectInterface[APNObjectProxy] `json:"-" xml:"-"`
 
 	Server *string `json:"server,omitempty" xml:"proxy,attr,omitempty"`
 	Port   *int    `json:"port,omitempty"   xml:"port,attr,omitempty"`
 }
 
-func (apnPointerProxy *APNObjectProxy) IsExist() bool {
+// Clone creates a deep copy of APNObjectProxy.
+// Returns nil if validation fails.
+func (apnPointerProxy *APNObjectProxy) Clone() (_apnPointerProxy *APNObjectProxy) {
+	if apnPointerProxy.Validate() {
+		_apnPointerProxy = &APNObjectProxy{
+			Server: helperClonePointer(apnPointerProxy.Server),
+			Port:   helperClonePointer(apnPointerProxy.Port),
+		}
+	}
+
+	return
+}
+
+// Validate checks that both Server (non-empty) and Port are set.
+func (apnPointerProxy *APNObjectProxy) Validate() bool {
 	if apnPointerProxy != nil && ((apnPointerProxy.Server != nil && *apnPointerProxy.Server != "") && apnPointerProxy.Port != nil) {
 		return true
 	}
@@ -351,15 +468,31 @@ func (apnPointerProxy *APNObjectProxy) IsExist() bool {
 // APN Unit MMS
 //--------------------------------------------------------------------------------//
 
+// APNObjectMms contains MMS (Multimedia Messaging Service) settings: MMSC URL, proxy, and port.
 type APNObjectMms struct {
-	APNObjectInterface `json:"-" xml:"-"`
+	APNObjectInterface[APNObjectMms] `json:"-" xml:"-"`
 
 	Center *string `json:"center,omitempty" xml:"mmsc,attr,omitempty"`
 	Server *string `json:"server,omitempty" xml:"mmsproxy,attr,omitempty"`
 	Port   *int    `json:"port,omitempty"   xml:"mmsport,attr,omitempty"`
 }
 
-func (apnPointerMms *APNObjectMms) IsExist() bool {
+// Clone creates a deep copy of APNObjectMms.
+// Returns nil if validation fails.
+func (apnPointerMms *APNObjectMms) Clone() (_apnPointerMms *APNObjectMms) {
+	if apnPointerMms.Validate() {
+		_apnPointerMms = &APNObjectMms{
+			Center: helperClonePointer(apnPointerMms.Center),
+			Server: helperClonePointer(apnPointerMms.Server),
+			Port:   helperClonePointer(apnPointerMms.Port),
+		}
+	}
+
+	return
+}
+
+// Validate checks that at least one of Center, Server, or Port is set.
+func (apnPointerMms *APNObjectMms) Validate() bool {
 	if apnPointerMms != nil && ((apnPointerMms.Center != nil && *apnPointerMms.Center != "") || (apnPointerMms.Server != nil && *apnPointerMms.Server != "") || apnPointerMms.Port != nil) {
 		return true
 	}
@@ -371,14 +504,29 @@ func (apnPointerMms *APNObjectMms) IsExist() bool {
 // APN Unit MVNO
 //--------------------------------------------------------------------------------//
 
+// APNObjectMvno contains MVNO (Mobile Virtual Network Operator) matching settings: type and data.
 type APNObjectMvno struct {
-	APNObjectInterface `json:"-" xml:"-"`
+	APNObjectInterface[APNObjectMvno] `json:"-" xml:"-"`
 
 	Type *string `json:"type,omitempty" xml:"mvno_type,attr,omitempty"`
 	Data *string `json:"data,omitempty" xml:"mvno_match_data,attr,omitempty"`
 }
 
-func (apnPointerMvno *APNObjectMvno) IsExist() bool {
+// Clone creates a deep copy of APNObjectMvno.
+// Returns nil if validation fails.
+func (apnPointerMvno *APNObjectMvno) Clone() (_apnPointerMvno *APNObjectMvno) {
+	if apnPointerMvno.Validate() {
+		_apnPointerMvno = &APNObjectMvno{
+			Type: helperClonePointer(apnPointerMvno.Type),
+			Data: helperClonePointer(apnPointerMvno.Data),
+		}
+	}
+
+	return
+}
+
+// Validate checks that at least one of Type or Data is set.
+func (apnPointerMvno *APNObjectMvno) Validate() bool {
 	if apnPointerMvno != nil && (apnPointerMvno.Type != nil || apnPointerMvno.Data != nil) {
 		return true
 	}
@@ -390,14 +538,29 @@ func (apnPointerMvno *APNObjectMvno) IsExist() bool {
 // APN Unit Limit
 //--------------------------------------------------------------------------------//
 
+// APNObjectLimit contains connection limiting settings: maximum concurrent connections and duration.
 type APNObjectLimit struct {
-	APNObjectInterface `json:"-" xml:"-"`
+	APNObjectInterface[APNObjectLimit] `json:"-" xml:"-"`
 
 	MaxConn     *int `json:"maxConn,omitempty"      xml:"max_conns,attr,omitempty"`
 	MaxConnTime *int `json:"maxConnTime,omitempty"  xml:"max_conns_time,attr,omitempty"`
 }
 
-func (apnPointerLimit *APNObjectLimit) IsExist() bool {
+// Clone creates a deep copy of APNObjectLimit.
+// Returns nil if validation fails.
+func (apnPointerLimit *APNObjectLimit) Clone() (_apnPointerLimit *APNObjectLimit) {
+	if apnPointerLimit.Validate() {
+		_apnPointerLimit = &APNObjectLimit{
+			MaxConn:     helperClonePointer(apnPointerLimit.MaxConn),
+			MaxConnTime: helperClonePointer(apnPointerLimit.MaxConnTime),
+		}
+	}
+
+	return
+}
+
+// Validate checks that at least one of MaxConn or MaxConnTime is set.
+func (apnPointerLimit *APNObjectLimit) Validate() bool {
 	if apnPointerLimit != nil && (apnPointerLimit.MaxConn != nil || apnPointerLimit.MaxConnTime != nil) {
 		return true
 	}
@@ -409,8 +572,10 @@ func (apnPointerLimit *APNObjectLimit) IsExist() bool {
 // APN Unit Other
 //--------------------------------------------------------------------------------//
 
+// APNObjectOther contains miscellaneous flags and settings not covered by other units.
+// Includes network restrictions, modem settings, and carrier control flags.
 type APNObjectOther struct {
-	APNObjectInterface `json:"-" xml:"-"`
+	APNObjectInterface[APNObjectOther] `json:"-" xml:"-"`
 
 	// Network restrictions
 	NetworkTypeBitmask *string `json:"networkTypeBitmask,omitempty" xml:"network_type_bitmask,attr,omitempty"`
@@ -424,7 +589,24 @@ type APNObjectOther struct {
 	UserEditable   *bool `json:"IsEditable,omitempty" xml:"user_editable,attr,omitempty"`
 }
 
-func (apnPointerOther *APNObjectOther) IsExist() bool {
+// Clone creates a deep copy of APNObjectOther.
+// Returns nil if validation fails.
+func (apnPointerOther *APNObjectOther) Clone() (_apnPointerOther *APNObjectOther) {
+	if apnPointerOther.Validate() {
+		_apnPointerOther = &APNObjectOther{
+			NetworkTypeBitmask: helperClonePointer(apnPointerOther.NetworkTypeBitmask),
+			ModemCognitive:     helperClonePointer(apnPointerOther.ModemCognitive),
+			CarrierEnabled:     helperClonePointer(apnPointerOther.CarrierEnabled),
+			UserVisible:        helperClonePointer(apnPointerOther.UserVisible),
+			UserEditable:       helperClonePointer(apnPointerOther.UserEditable),
+		}
+	}
+
+	return
+}
+
+// Validate checks that at least one field in APNObjectOther is set.
+func (apnPointerOther *APNObjectOther) Validate() bool {
 	if apnPointerOther != nil && (apnPointerOther.NetworkTypeBitmask != nil || apnPointerOther.ModemCognitive != nil || apnPointerOther.CarrierEnabled != nil || apnPointerOther.UserVisible != nil || apnPointerOther.UserEditable != nil) {
 		return true
 	}

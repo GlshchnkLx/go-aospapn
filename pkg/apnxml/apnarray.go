@@ -8,9 +8,9 @@ import (
 	"sort"
 )
 
-// --------------------------------------------------------------------------------//
+//--------------------------------------------------------------------------------//
 // APNArray
-// --------------------------------------------------------------------------------//
+//--------------------------------------------------------------------------------//
 
 type APNArray []APNObject
 
@@ -82,7 +82,7 @@ func (apnArray *APNArray) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.Sta
 	)
 
 	if xmlStart.Name.Local != "apns" {
-		return fmt.Errorf("apn xml has uncorrected root element: %s", xmlStart.Name.Local)
+		return fmt.Errorf("apn xml has incorrect root element: %q", xmlStart.Name.Local)
 	}
 
 	for {
@@ -110,13 +110,14 @@ func (apnArray *APNArray) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.Sta
 					return err
 				}
 
-				if apnObject.APNObjectRoot != nil {
+				if apnObject.APNObjectRoot != nil && apnObject.APNObjectRoot.Mcc != nil && apnObject.APNObjectRoot.Mnc != nil {
 					apnObjectBaseID = apnObject.GetID()
 
 					apnGroupArrayMap[apnObjectBaseID] = append(apnGroupArrayMap[apnObjectBaseID], apnObject)
 
 					apnCore = apnCoreMap[apnObjectBaseID]
-					if apnCore.Base == nil || apnCore.Base.Type == nil || *apnCore.Base.Type&APNTYPE_BASE_TYPE_DEFAULT != APNTYPE_BASE_TYPE_DEFAULT {
+
+					if apnCore.Base == nil || apnCore.Base.Type == nil || *apnCore.Base.Type&APNTYPE_BASE_TYPE_DEFAULT != APNTYPE_BASE_TYPE_DEFAULT || len(apnCore.Carrier) < len(apnObject.Carrier) {
 						apnCoreMap[apnObjectBaseID] = apnObject.Clone()
 					}
 				}
@@ -172,8 +173,8 @@ func (apnArray *APNArray) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.Sta
 	return nil
 }
 
-func (apnArray APNArray) MarshalJSON() ([]byte, error) {
-	return json.MarshalIndent(apnArray, "", "\t")
-}
+// func (apnArray APNArray) MarshalJSON() ([]byte, error) {
+// 	return json.MarshalIndent(apnArray, "", "\t")
+// }
 
 //--------------------------------------------------------------------------------//
