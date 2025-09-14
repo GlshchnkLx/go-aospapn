@@ -1,16 +1,25 @@
 // # APN Type
 //
-// File apntype provides strongly-typed, configurable enum and bitmask types for APN
-// configuration values, with built-in support for XML and JSON marshaling/unmarshaling.
+// File defines core mapping structures (APNTypeCoreMap) and proxy structures
+// (APNTypeCoreProxy) that enable bidirectional conversion between integer bitmask
+// values and their string representations for JSON/XML marshaling.
 //
-// It includes:
-//   - APNTypeCoreOption: Configurable formatting options for serialization (XML/JSON/text).
-//   - APNTypeCoreEnum: Generic enum type with bidirectional string↔int mapping.
-//   - APNTypeCoreBitmask: Generic bitmask type supporting multi-flag combinations.
-//   - Predefined types: APNTypeBaseType, APNTypeAuthType, APNTypeBearerProtocol.
+// Predefined APN types include:
+//   - APNTypeBaseType: for base APN capabilities (default, mms, supl, dun, etc.)
+//   - APNTypeAuthType: for authentication types (none, pap, chap)
+//   - APNTypeNetworkType: for network technologies (gprs, lte, nr, etc.)
+//   - APNTypeBearerProtocol: for bearer protocols (ip, ipv4, ipv6, ppp, etc.)
 //
-// All types implement encoding.TextMarshaler, encoding.TextUnmarshaler,
-// xml.MarshalerAttr, and xml.UnmarshalerAttr for seamless integration with Go’s standard libraries.
+// Each type supports:
+//   - String() for human-readable output
+//   - MarshalJSON/UnmarshalJSON for JSON serialization
+//   - MarshalXMLAttr/UnmarshalXMLAttr for XML attribute serialization
+//
+// The core proxy system allows configuration of serialization formats:
+//   - Arrays vs single values
+//   - String case (upper/lower)
+//   - Numeric representation (order-based or index-based)
+//   - Custom separators for array serialization
 package apnxml
 
 import (
@@ -23,468 +32,462 @@ import (
 )
 
 //--------------------------------------------------------------------------------//
-// APNType APNTypeCoreOption
+// APNType CoreMap
 //--------------------------------------------------------------------------------//
 
-// APNTypeCoreOption holds formatting and serialization options for APN types in XML and text (JSON/logs).
-// It is embedded into APNTypeCoreEnum and APNTypeCoreBitmask to provide consistent configuration.
-type APNTypeCoreOption struct {
-	XMLUseNumber  bool
-	XMLUseUpper   bool
-	XMLSeparator  string
-	TextSeparator string
-}
-
-// NewAPNTypeCoreOption creates a new option set with default values:
-//   - XMLUseNumber: false — serialize as string names, not numbers.
-//   - XMLUseUpper: false — preserve original case in XML.
-//   - XMLSeparator: "," — separator for bitmask values in XML attributes.
-//   - TextSeparator: "," — separator for bitmask values in JSON/text output.
+// APNTypeCoreMap provides bidirectional mapping between integer indices and string values
+// for APN types. It supports bitmask operations for multi-value types and maintains
+// ordered index arrays for consistent serialization.
 //
-// Use Set* methods to customize behavior.
-func NewAPNTypeCoreOption() *APNTypeCoreOption {
-	return &APNTypeCoreOption{
-		XMLUseNumber:  false,
-		XMLUseUpper:   false,
-		XMLSeparator:  ",",
-		TextSeparator: ",",
-	}
-}
+// The structure enforces bounds checking with NoneIndex (invalid/none value) and MaxIndex
+// (upper bound). Only indices between NoneIndex and MaxIndex are considered valid.
+//
+// Type parameter must be an integer type (~int constraint).
+type APNTypeCoreMap[Type ~int] struct {
+	NoneIndex Type
+	MaxIndex  Type
 
-// SetXMLUseNumber enables or disables numeric output in XML marshaling.
-// When true, bitmask/enum values are serialized as integers (e.g., "3" instead of "pap,chap").
-// Returns the receiver for chaining.
-func (apnTypeOption *APNTypeCoreOption) SetXMLUseNumber(value bool) *APNTypeCoreOption {
-	apnTypeOption.XMLUseNumber = value
-	return apnTypeOption
-}
-
-// SetXMLUseUpper enables or disables uppercase conversion for string values in XML.
-// When true, string representations are converted to uppercase (e.g., "IPV4V6").
-// Returns the receiver for chaining.
-func (apnTypeOption *APNTypeCoreOption) SetXMLUseUpper(value bool) *APNTypeCoreOption {
-	apnTypeOption.XMLUseUpper = value
-	return apnTypeOption
-}
-
-// SetXMLSeparator sets the separator string used when marshaling bitmask values to XML attributes.
-// Applied only when XMLUseNumber=false. If value is empty, the separator is not changed.
-func (apnTypeOption *APNTypeCoreOption) SetXMLSeparator(value string) *APNTypeCoreOption {
-	if value != "" {
-		apnTypeOption.XMLSeparator = value
-	}
-
-	return apnTypeOption
-}
-
-// SetTextSeparator sets the separator string used when marshaling bitmask values to text formats (JSON, logs).
-// Applied in String(), MarshalJSON(), etc. If value is empty, the separator is not changed.
-func (apnTypeOption *APNTypeCoreOption) SetTextSeparator(value string) *APNTypeCoreOption {
-	if value != "" {
-		apnTypeOption.TextSeparator = value
-	}
-
-	return apnTypeOption
-}
-
-//--------------------------------------------------------------------------------//
-// APNType APNTypeCoreEnum
-//--------------------------------------------------------------------------------//
-
-// APNTypeCoreEnum represents an enumeration of APN-related values (e.g., bearer protocol).
-// It supports bidirectional mapping between integer indices and string representations,
-// with customizable XML/JSON serialization behavior via embedded APNTypeCoreOption.
-type APNTypeCoreEnum[Type ~int] struct {
-	IndexNone    Type
-	IndexDefault Type
-	IndexMax     Type
-
+	IndexArray  []Type
 	MapByIndex  map[Type]string
 	MapByString map[string]Type
-
-	*APNTypeCoreOption
 }
 
-// NewAPNTypeCoreEnum creates a new enum configuration.
-// If option is nil, a default APNTypeCoreOption is used.
+// NewAPNTypeCoreMap creates a new APNTypeCoreMap with the specified none index, max index,
+// and initial mapping from indices to strings.
 //
-// Parameters:
-//   - indexNone: value representing "none" or "invalid".
-//   - indexDefault: default/wildcard value (e.g., "*" maps to this).
-//   - indexMax: exclusive upper bound of valid values (used for validation).
-//   - mapByIndex: map of valid enum values to their string representations.
-//   - option: optional configuration for XML/JSON formatting.
+// The function:
+//   - Initializes empty arrays and maps
+//   - Processes the input map, trimming whitespace from string values
+//   - Adds valid indices (between NoneIndex and MaxIndex) to IndexArray
+//   - Populates both forward (index→string) and reverse (string→index) maps
+//   - Sorts IndexArray in ascending order for consistent iteration
 //
-// Automatically adds "" → IndexNone and "*" → IndexDefault to MapByString.
-func NewAPNTypeCoreEnum[Type ~int](indexNone Type, indexDefault Type, indexMax Type, mapByIndex map[Type]string, option *APNTypeCoreOption) *APNTypeCoreEnum[Type] {
-	var (
-		apnTypeEnum = &APNTypeCoreEnum[Type]{
-			IndexNone:         indexNone,
-			IndexDefault:      indexDefault,
-			IndexMax:          indexMax,
-			MapByIndex:        mapByIndex,
-			MapByString:       map[string]Type{},
-			APNTypeCoreOption: option,
-		}
-	)
-
-	if apnTypeEnum.APNTypeCoreOption == nil {
-		apnTypeEnum.APNTypeCoreOption = NewAPNTypeCoreOption()
+// Returns a pointer to the initialized APNTypeCoreMap.
+func NewAPNTypeCoreMap[Type ~int](noneIndex Type, maxIndex Type, mapByIndex map[Type]string) *APNTypeCoreMap[Type] {
+	apnTypeMap := &APNTypeCoreMap[Type]{
+		NoneIndex:   noneIndex,
+		MaxIndex:    maxIndex,
+		IndexArray:  []Type{},
+		MapByIndex:  map[Type]string{},
+		MapByString: map[string]Type{},
 	}
 
 	for apnTypeIndex, apnTypeString := range mapByIndex {
-		apnTypeString = strings.TrimSpace(strings.ToLower(apnTypeString))
-		apnTypeEnum.MapByString[apnTypeString] = apnTypeIndex
+		apnTypeString = strings.TrimSpace(apnTypeString)
+
+		if noneIndex < apnTypeIndex && apnTypeIndex < maxIndex {
+			apnTypeMap.IndexArray = append(apnTypeMap.IndexArray, apnTypeIndex)
+		}
+
+		apnTypeMap.MapByIndex[apnTypeIndex] = apnTypeString
+		apnTypeMap.MapByString[apnTypeString] = apnTypeIndex
 	}
 
-	apnTypeEnum.MapByString[""] = indexNone
-	apnTypeEnum.MapByString["*"] = indexDefault
+	sort.Slice(apnTypeMap.IndexArray, func(i, j int) bool {
+		return apnTypeMap.IndexArray[i] < apnTypeMap.IndexArray[j]
+	})
 
-	return apnTypeEnum
+	return apnTypeMap
 }
 
-// GetString returns the string representation of the given enum value.
-// If the value is not found, returns the string for IndexNone.
-func (apnTypeEnum *APNTypeCoreEnum[Type]) GetString(apnTypeIndex Type) string {
-	var (
-		apnTypeString string
-		ok            bool
-	)
+// GetIndex returns the input index if it exists in the map, otherwise returns NoneIndex.
+// This provides safe access to validate if an index is defined in the map.
+func (apnTypeMap *APNTypeCoreMap[Type]) GetIndex(apnTypeValue Type) Type {
+	if _, ok := apnTypeMap.MapByIndex[apnTypeValue]; ok {
+		return apnTypeValue
+	} else {
+		return apnTypeMap.NoneIndex
+	}
+}
 
-	apnTypeString, ok = apnTypeEnum.MapByIndex[apnTypeIndex]
-	if !ok {
-		return apnTypeEnum.MapByIndex[apnTypeEnum.IndexNone]
+// SetIndex sets the target value to the specified index if it exists in the map.
+// Returns an error if the index is not found in MapByIndex.
+func (apnTypeMap *APNTypeCoreMap[Type]) SetIndex(apnTypeValue *Type, apnTypeIndex Type) error {
+	if _, ok := apnTypeMap.MapByIndex[apnTypeIndex]; !ok {
+		return fmt.Errorf("apn type has incorrect index: %d", apnTypeIndex)
 	}
 
-	return apnTypeString
+	*apnTypeValue = apnTypeIndex
+
+	return nil
 }
 
-// SetString sets the enum value by parsing a string.
-// The input string is trimmed and converted to lowercase before lookup.
-// Returns an error if the string is not recognized.
-func (apnTypeEnum *APNTypeCoreEnum[Type]) SetString(apnTypeIndex *Type, apnTypeString string) error {
-	var (
-		ok bool
-	)
+// GetIndexArray returns an array of indices that are set in the bitmask value.
+// For each index in IndexArray, it checks if the bit is set in apnTypeValue.
+// If no bits are set, returns an array containing only NoneIndex.
+func (apnTypeMap *APNTypeCoreMap[Type]) GetIndexArray(apnTypeValue Type) []Type {
+	apnTypeIndexArray := []Type{}
 
-	apnTypeString = strings.ToLower(strings.TrimSpace((apnTypeString)))
+	for _, apnTypeIndex := range apnTypeMap.IndexArray {
+		if apnTypeValue&apnTypeIndex == apnTypeIndex {
+			apnTypeIndexArray = append(apnTypeIndexArray, apnTypeIndex)
+		}
+	}
 
-	*apnTypeIndex, ok = apnTypeEnum.MapByString[apnTypeString]
+	if len(apnTypeIndexArray) == 0 {
+		apnTypeIndexArray = append(apnTypeIndexArray, apnTypeMap.NoneIndex)
+	}
+
+	return apnTypeIndexArray
+}
+
+// SetIndexArray sets the target value by combining all specified indices using bitwise OR.
+// Returns an error if any index is not found in MapByIndex.
+// The target value is first reset to NoneIndex before applying the OR operations.
+func (apnTypeMap *APNTypeCoreMap[Type]) SetIndexArray(apnTypeValue *Type, apnTypeIndexArray []Type) error {
+	*apnTypeValue = apnTypeMap.NoneIndex
+
+	for _, apnTypeIndex := range apnTypeIndexArray {
+		_, ok := apnTypeMap.MapByIndex[apnTypeIndex]
+		if !ok {
+			return fmt.Errorf("apn type has incorrect index: %d", apnTypeIndex)
+		}
+
+		*apnTypeValue |= apnTypeIndex
+	}
+
+	return nil
+}
+
+// GetString returns the string representation of the specified index.
+// If the index is invalid, returns the string for NoneIndex.
+func (apnTypeMap *APNTypeCoreMap[Type]) GetString(apnTypeValue Type) string {
+	return apnTypeMap.MapByIndex[apnTypeMap.GetIndex(apnTypeValue)]
+}
+
+// SetString sets the target value to the index corresponding to the specified string.
+// Returns an error if the string is not found in MapByString.
+func (apnTypeMap *APNTypeCoreMap[Type]) SetString(apnTypeValue *Type, apnTypeString string) error {
+	apnTypeIndex, ok := apnTypeMap.MapByString[apnTypeString]
 	if !ok {
 		return fmt.Errorf("apn type has incorrect string: %q", apnTypeString)
 	}
 
-	return nil
+	return apnTypeMap.SetIndex(apnTypeValue, apnTypeIndex)
 }
 
-// MarshalXMLValue serializes the enum value to an XML attribute.
-// Behavior depends on embedded APNTypeCoreOption:
-//   - If XMLUseNumber is true, outputs the integer value.
-//   - Otherwise, outputs the string representation (optionally uppercased if XMLUseUpper is true).
-func (apnTypeEnum *APNTypeCoreEnum[Type]) MarshalXMLValue(apnTypeIndex Type, xmlAttrName xml.Name) (xmlAttr xml.Attr, err error) {
+// GetStringArray returns an array of strings corresponding to all set bits in the bitmask value.
+// Uses GetIndexArray to determine which indices are set, then maps each to its string representation.
+func (apnTypeMap *APNTypeCoreMap[Type]) GetStringArray(apnTypeValue Type) []string {
 	var (
-		apnTypeString string
-	)
-
-	if apnTypeEnum.XMLUseNumber {
-		apnTypeString = strconv.Itoa(int(apnTypeIndex))
-	} else {
-		apnTypeString = apnTypeEnum.GetString(apnTypeIndex)
-	}
-
-	if !apnTypeEnum.XMLUseNumber && apnTypeEnum.XMLUseUpper {
-		apnTypeString = strings.ToUpper(apnTypeString)
-	}
-
-	return xml.Attr{
-		Name:  xmlAttrName,
-		Value: apnTypeString,
-	}, nil
-}
-
-// UnmarshalXMLValue parses an XML attribute into the enum value.
-// If XMLUseNumber is true, expects an integer; otherwise, expects a string.
-// Empty values are treated as IndexNone.
-func (apnTypeEnum *APNTypeCoreEnum[Type]) UnmarshalXMLValue(apnTypeIndex *Type, xmlAttr xml.Attr) error {
-	var (
-		_apnTypeIndex int
-		err           error
-	)
-
-	if xmlAttr.Value == "" {
-		*apnTypeIndex = apnTypeEnum.IndexNone
-	} else {
-		if apnTypeEnum.XMLUseNumber {
-			_apnTypeIndex, err = strconv.Atoi(xmlAttr.Value)
-			if err != nil {
-				return fmt.Errorf("apn auth type has invalid number: %v", err)
-			}
-
-			if _apnTypeIndex < int(apnTypeEnum.IndexNone) || int(apnTypeEnum.IndexMax) <= _apnTypeIndex {
-				return fmt.Errorf("apn auth type has out of range number: %d", _apnTypeIndex)
-			}
-
-			*apnTypeIndex = Type(_apnTypeIndex)
-		} else {
-			return apnTypeEnum.SetString(apnTypeIndex, xmlAttr.Value)
-		}
-	}
-
-	return nil
-}
-
-// MarshalJSONValue serializes the enum value to JSON as its string representation.
-func (apnTypeEnum *APNTypeCoreEnum[Type]) MarshalJSONValue(apnTypeIndex Type) (jsonByte []byte, err error) {
-	return json.Marshal(apnTypeEnum.GetString(apnTypeIndex))
-}
-
-// UnmarshalJSONValue parses a JSON string into the enum value.
-func (apnTypeEnum *APNTypeCoreEnum[Type]) UnmarshalJSONValue(apnTypeIndex *Type, jsonByte []byte) error {
-	var (
-		apnTypeString string
-		err           error
-	)
-
-	err = json.Unmarshal(jsonByte, &apnTypeString)
-	if err != nil {
-		return err
-	}
-
-	return apnTypeEnum.SetString(apnTypeIndex, apnTypeString)
-}
-
-//--------------------------------------------------------------------------------//
-// APNType APNTypeCoreBitmask
-//--------------------------------------------------------------------------------//
-
-// APNTypeCoreBitmask represents a bitmask of APN-related flags (e.g., APN types, auth types).
-// It supports combining multiple flags, with customizable string serialization via separators.
-// XML/JSON formatting is controlled via embedded APNTypeCoreOption.
-//
-// Flags are expected to be powers of two (1, 2, 4, 8, ...).
-// Supports parsing from comma/pipe-separated strings or JSON arrays.
-type APNTypeCoreBitmask[Type ~int] struct {
-	IndexNone    Type
-	IndexDefault Type
-	IndexAll     Type
-	IndexMax     Type
-
-	ArrayIndex  []Type
-	MapByIndex  map[Type]string
-	MapByString map[string]Type
-
-	*APNTypeCoreOption
-}
-
-// NewAPNTypeCoreBitmask creates a new bitmask configuration.
-// If option is nil, a default APNTypeCoreOption is used.
-//
-// Parameters:
-//   - indexNone: value representing "no flags".
-//   - indexDefault: default/wildcard flag.
-//   - indexAll: value representing all flags combined.
-//   - indexMax: exclusive upper bound of valid flag values.
-//   - mapByIndex: map of valid flag values to their string representations.
-//   - option: optional configuration for XML/JSON formatting.
-//
-// Automatically adds "" → IndexNone and "*" → IndexAll to MapByString.
-// Sorts ArrayIndex for consistent iteration order.
-func NewAPNTypeCoreBitmask[Type ~int](indexNone Type, indexDefault Type, indexAll Type, indexMax Type, mapByIndex map[Type]string, option *APNTypeCoreOption) *APNTypeCoreBitmask[Type] {
-	var (
-		apnTypeBitmask = APNTypeCoreBitmask[Type]{
-			IndexNone:         indexNone,
-			IndexDefault:      indexDefault,
-			IndexAll:          indexAll,
-			IndexMax:          indexMax,
-			ArrayIndex:        []Type{},
-			MapByIndex:        mapByIndex,
-			MapByString:       map[string]Type{},
-			APNTypeCoreOption: option,
-		}
-	)
-
-	if apnTypeBitmask.APNTypeCoreOption == nil {
-		apnTypeBitmask.APNTypeCoreOption = NewAPNTypeCoreOption()
-	}
-
-	for apnTypeIndex, apnTypeString := range mapByIndex {
-		apnTypeString = strings.TrimSpace(strings.ToLower(apnTypeString))
-
-		if apnTypeBitmask.IndexNone < apnTypeIndex && apnTypeIndex < apnTypeBitmask.IndexMax {
-			apnTypeBitmask.ArrayIndex = append(apnTypeBitmask.ArrayIndex, apnTypeIndex)
-		}
-
-		apnTypeBitmask.MapByString[apnTypeString] = apnTypeIndex
-	}
-
-	apnTypeBitmask.MapByString[""] = indexNone
-	apnTypeBitmask.MapByString["*"] = indexAll
-
-	sort.Slice(apnTypeBitmask.ArrayIndex, func(i, j int) bool {
-		return apnTypeBitmask.ArrayIndex[i] < apnTypeBitmask.ArrayIndex[j]
-	})
-
-	return &apnTypeBitmask
-}
-
-// GetStringByIndex returns the string representation of a single flag.
-// If the flag is not found, returns the string for IndexNone.
-func (apnTypeBitmask *APNTypeCoreBitmask[Type]) GetStringByIndex(apnTypeIndex Type) string {
-	var (
-		apnTypeString string
-		ok            bool
-	)
-
-	apnTypeString, ok = apnTypeBitmask.MapByIndex[apnTypeIndex]
-	if !ok {
-		apnTypeString = apnTypeBitmask.MapByIndex[apnTypeBitmask.IndexNone]
-	}
-
-	return apnTypeString
-}
-
-// GetStringArray returns a slice of strings representing all set flags in the bitmask.
-// If no flags are set, returns a slice containing the string for IndexNone.
-func (apnTypeBitmask *APNTypeCoreBitmask[Type]) GetStringArray(apnTypeIndex Type) []string {
-	var (
+		apnTypeIndexArray  []Type
 		apnTypeStringArray []string
 	)
 
-	for _, _apnTypeIndex := range apnTypeBitmask.ArrayIndex {
-		if apnTypeIndex&_apnTypeIndex == _apnTypeIndex {
-			apnTypeStringArray = append(apnTypeStringArray, apnTypeBitmask.GetStringByIndex(_apnTypeIndex))
-		}
-	}
+	apnTypeIndexArray = apnTypeMap.GetIndexArray(apnTypeValue)
 
-	if len(apnTypeStringArray) == 0 {
-		apnTypeStringArray = append(apnTypeStringArray, apnTypeBitmask.MapByIndex[apnTypeBitmask.IndexNone])
+	for _, apnTypeIndex := range apnTypeIndexArray {
+		apnTypeStringArray = append(apnTypeStringArray, apnTypeMap.MapByIndex[apnTypeIndex])
 	}
 
 	return apnTypeStringArray
 }
 
-// GetString returns a string representation of the bitmask, joining flag strings with the given separator.
-func (apnTypeBitmask *APNTypeCoreBitmask[Type]) GetString(apnTypeIndex Type, separator string) string {
-	return strings.Join(apnTypeBitmask.GetStringArray(apnTypeIndex), separator)
-}
-
-// SetStringArray sets the bitmask value by parsing a slice of strings.
-// Each string is trimmed and lowercased before lookup.
-// Returns an error if any string is unrecognized.
-func (apnTypeBitmask *APNTypeCoreBitmask[Type]) SetStringArray(apnTypeIndex *Type, apnTypeStringArray []string) error {
-	*apnTypeIndex = apnTypeBitmask.IndexNone
+// SetStringArray sets the target value based on an array of strings.
+// Each string is converted to lowercase and trimmed, then mapped to its index.
+// Returns an error if any string is not found in MapByString.
+// Uses SetIndexArray to combine all indices.
+func (apnTypeMap *APNTypeCoreMap[Type]) SetStringArray(apnTypeValue *Type, apnTypeStringArray []string) error {
+	var (
+		apnTypeIndexArray []Type
+	)
 
 	for _, apnTypeString := range apnTypeStringArray {
 		apnTypeString = strings.ToLower(strings.TrimSpace((apnTypeString)))
 
-		_apnTypeIndex, ok := apnTypeBitmask.MapByString[apnTypeString]
+		apnTypeIndex, ok := apnTypeMap.MapByString[apnTypeString]
 		if !ok {
 			return fmt.Errorf("apn type has incorrect string: %q", apnTypeString)
 		}
 
-		*apnTypeIndex |= _apnTypeIndex
+		apnTypeIndexArray = append(apnTypeIndexArray, apnTypeIndex)
 	}
+
+	return apnTypeMap.SetIndexArray(apnTypeValue, apnTypeIndexArray)
+}
+
+// GetValue returns the input value if it's within valid bounds (NoneIndex ≤ value < MaxIndex),
+// otherwise returns NoneIndex. This provides bounds checking for raw values.
+func (apnTypeMap *APNTypeCoreMap[Type]) GetValue(apnTypeValue Type) Type {
+	if apnTypeValue <= apnTypeMap.NoneIndex {
+		return apnTypeMap.NoneIndex
+	} else if apnTypeMap.MaxIndex <= apnTypeValue {
+		return apnTypeMap.NoneIndex
+	} else {
+		return apnTypeValue
+	}
+}
+
+// SetValue sets the target value if it's within valid bounds (NoneIndex ≤ value < MaxIndex).
+// Returns an error if the value is out of bounds.
+func (apnTypeMap *APNTypeCoreMap[Type]) SetValue(apnTypeValue *Type, apnTypeIndex Type) error {
+	if !(apnTypeMap.NoneIndex <= apnTypeIndex && apnTypeIndex < apnTypeMap.MaxIndex) {
+		return fmt.Errorf("apn type has incorrect value: %d", apnTypeIndex)
+	}
+
+	*apnTypeValue = apnTypeIndex
 
 	return nil
 }
 
-// SetString sets the bitmask value by parsing a string with the given separator.
-func (apnTypeBitmask *APNTypeCoreBitmask[Type]) SetString(apnTypeIndex *Type, apnTypeString string, separator string) error {
-	return apnTypeBitmask.SetStringArray(apnTypeIndex, strings.Split(apnTypeString, separator))
+//--------------------------------------------------------------------------------//
+// APNType CoreProxyOption
+//--------------------------------------------------------------------------------//
+
+// APNTypeCoreProxyOption configures how APN types are serialized to/from JSON and XML.
+// This structure controls the format of the serialized representation.
+type APNTypeCoreProxyOption struct {
+	jsonIsArray bool
+
+	xmlIsArray           bool
+	xmlArrayHasSeparator string
+	xmlIsString          bool
+	xmlStringIsUpper     bool
+	xmlIsNumber          bool
+	xmlNumberIsOrder     bool
+	xmlNumberIsIndex     bool
 }
 
-// GetText returns the bitmask as a string using the embedded TextSeparator.
-func (apnTypeBitmask *APNTypeCoreBitmask[Type]) GetText(apnTypeIndex Type) string {
-	return apnTypeBitmask.GetString(apnTypeIndex, apnTypeBitmask.TextSeparator)
+// NewAPNTypeCoreProxyOption creates a new APNTypeCoreProxyOption with default values:
+//   - JSON: single value (not array)
+//   - XML: string representation (not array, not number), lowercase
+func NewAPNTypeCoreProxyOption() APNTypeCoreProxyOption {
+	return APNTypeCoreProxyOption{
+		jsonIsArray: false,
+
+		xmlIsArray:           false,
+		xmlArrayHasSeparator: "",
+		xmlIsString:          true,
+		xmlStringIsUpper:     false,
+		xmlIsNumber:          false,
+		xmlNumberIsOrder:     false,
+		xmlNumberIsIndex:     false,
+	}
 }
 
-// SetText sets the bitmask value by parsing a string using the embedded TextSeparator.
-func (apnTypeBitmask *APNTypeCoreBitmask[Type]) SetText(apnTypeIndex *Type, apnTypeString string) error {
-	return apnTypeBitmask.SetString(apnTypeIndex, apnTypeString, apnTypeBitmask.TextSeparator)
+// SetJSONIsArray configures whether JSON serialization should use an array format.
+// When true, multiple values are serialized as a JSON array; when false, as a single string.
+// Returns a new APNTypeCoreProxyOption with the updated setting.
+func (apnTypeProxyOption APNTypeCoreProxyOption) SetJSONIsArray(jsonIsArray bool) APNTypeCoreProxyOption {
+	apnTypeProxyOption.jsonIsArray = jsonIsArray
+
+	return apnTypeProxyOption
 }
 
-// MarshalXMLValue serializes the bitmask to an XML attribute.
-// Behavior depends on embedded APNTypeCoreOption:
-//   - If XMLUseNumber is true, outputs the integer value.
-//   - Otherwise, outputs a string of flags joined by XMLSeparator (optionally uppercased).
-func (apnTypeBitmask *APNTypeCoreBitmask[Type]) MarshalXMLValue(apnTypeIndex Type, xmlAttrName xml.Name) (xmlAttr xml.Attr, err error) {
+// SetXMLIsArray configures XML serialization to use an array format with the specified separator.
+// The separator is used to join multiple values into a single string attribute.
+// Returns a new APNTypeCoreProxyOption with xmlIsArray=true and the specified separator.
+func (apnTypeProxyOption APNTypeCoreProxyOption) SetXMLIsArray(xmlArrayHasSeparator string) APNTypeCoreProxyOption {
+	apnTypeProxyOption.xmlIsArray = true
+	apnTypeProxyOption.xmlArrayHasSeparator = xmlArrayHasSeparator
+
+	return apnTypeProxyOption
+}
+
+// SetXMLIsString configures XML serialization to use string representation.
+// When xmlStringIsUpper is true, strings are converted to uppercase.
+// This method also disables number representation (xmlIsNumber=false).
+// Returns a new APNTypeCoreProxyOption with the updated settings.
+func (apnTypeProxyOption APNTypeCoreProxyOption) SetXMLIsString(xmlStringIsUpper bool) APNTypeCoreProxyOption {
+	apnTypeProxyOption.xmlIsNumber = false
+
+	apnTypeProxyOption.xmlIsString = true
+	apnTypeProxyOption.xmlStringIsUpper = xmlStringIsUpper
+
+	return apnTypeProxyOption
+}
+
+// SetXMLIsNumber configures XML serialization to use number representation.
+// When xmlNumberIsOrder is true, numbers represent the order (1-based index) of values.
+// When false, numbers represent the actual index value.
+// This method also disables string representation (xmlIsString=false).
+// Returns a new APNTypeCoreProxyOption with the updated settings.
+func (apnTypeProxyOption APNTypeCoreProxyOption) SetXMLIsNumber(xmlNumberIsOrder bool) APNTypeCoreProxyOption {
+	apnTypeProxyOption.xmlIsString = false
+
+	apnTypeProxyOption.xmlIsNumber = true
+	apnTypeProxyOption.xmlNumberIsOrder = xmlNumberIsOrder
+	apnTypeProxyOption.xmlNumberIsIndex = !xmlNumberIsOrder
+
+	return apnTypeProxyOption
+}
+
+//--------------------------------------------------------------------------------//
+// APNType CoreProxy
+//--------------------------------------------------------------------------------//
+
+// APNTypeCoreProxy provides serialization capabilities for APN types to JSON and XML formats.
+// It wraps an APNTypeCoreMap for JSON and creates a separate APNTypeCoreMap for XML with
+// potentially different string representations based on the configured options.
+//
+// The proxy handles the conversion between the internal bitmask representation and the
+// external serialized formats according to the specified options.
+type APNTypeCoreProxy[Type ~int] struct {
+	JSONMap *APNTypeCoreMap[Type]
+	XMLMap  *APNTypeCoreMap[Type]
+
+	option APNTypeCoreProxyOption
+}
+
+// NewAPNTypeCoreProxy creates a new APNTypeCoreProxy with the specified parameters.
+// It initializes the JSONMap with the provided mapping, then creates an XMLMap with
+// potentially transformed string values based on the proxy options:
+//   - If xmlIsString is true, strings may be converted to uppercase
+//   - If xmlIsNumber is true, strings are replaced with numeric values (order or index)
+//
+// Returns a pointer to the initialized APNTypeCoreProxy.
+func NewAPNTypeCoreProxy[Type ~int](noneIndex Type, maxIndex Type, mapByIndex map[Type]string, option APNTypeCoreProxyOption) *APNTypeCoreProxy[Type] {
+	apnTypeProxy := &APNTypeCoreProxy[Type]{
+		JSONMap: NewAPNTypeCoreMap(noneIndex, maxIndex, mapByIndex),
+		XMLMap:  nil,
+		option:  option,
+	}
+
+	xmlMapByIndex := map[Type]string{}
+
+	if option.xmlIsString {
+		for apnTypeIndex, apnTypeString := range apnTypeProxy.JSONMap.MapByIndex {
+			if option.xmlStringIsUpper {
+				apnTypeString = strings.ToUpper(apnTypeString)
+			}
+
+			xmlMapByIndex[apnTypeIndex] = apnTypeString
+		}
+	}
+
+	if option.xmlIsNumber {
+		for apnTypeOrder, apnTypeIndex := range apnTypeProxy.JSONMap.IndexArray {
+			apnTypeString := strconv.Itoa(apnTypeOrder + 1)
+			xmlMapByIndex[apnTypeIndex] = apnTypeString
+		}
+	}
+
+	apnTypeProxy.XMLMap = NewAPNTypeCoreMap(
+		apnTypeProxy.JSONMap.NoneIndex,
+		apnTypeProxy.JSONMap.MaxIndex,
+		xmlMapByIndex,
+	)
+
+	return apnTypeProxy
+}
+
+// MarshalJSONValue serializes the APN type value to JSON according to the configured options.
+// If jsonIsArray is true, returns a JSON array of strings; otherwise returns a single string.
+// Returns the JSON bytes and any error from the json.Marshal call.
+func (apnTypeProxy *APNTypeCoreProxy[Type]) MarshalJSONValue(apnTypeValue Type) (jsonByte []byte, err error) {
+	if apnTypeProxy.option.jsonIsArray {
+		return json.Marshal(apnTypeProxy.JSONMap.GetStringArray(apnTypeValue))
+	} else {
+		return json.Marshal(apnTypeProxy.JSONMap.GetString(apnTypeValue))
+	}
+}
+
+// UnmarshalJSONValue deserializes JSON data into the APN type value according to configured options.
+// If jsonIsArray is true, expects a JSON array of strings; otherwise expects a single string.
+// Returns an error if unmarshaling fails or if any string/index is invalid.
+func (apnTypeProxy *APNTypeCoreProxy[Type]) UnmarshalJSONValue(apnTypeValue *Type, jsonByte []byte) error {
+	var apnTypeJSON interface{}
+
+	if apnTypeProxy.option.jsonIsArray {
+		apnTypeJSON = []string{}
+	} else {
+		apnTypeJSON = ""
+	}
+
+	err := json.Unmarshal(jsonByte, &apnTypeJSON)
+	if err != nil {
+		return err
+	}
+
+	if apnTypeProxy.option.jsonIsArray {
+		return apnTypeProxy.JSONMap.SetStringArray(apnTypeValue, apnTypeJSON.([]string))
+	} else {
+		return apnTypeProxy.JSONMap.SetString(apnTypeValue, apnTypeJSON.(string))
+	}
+}
+
+// MarshalXMLValue serializes the APN type value to an XML attribute according to configured options.
+// Handles different formats:
+//   - Array: joins strings with specified separator
+//   - String: uses string representation (with case conversion if specified)
+//   - Number: uses either order-based or index-based numeric representation
+//
+// Returns an xml.Attr with the specified name and serialized value.
+func (apnTypeProxy *APNTypeCoreProxy[Type]) MarshalXMLValue(apnTypeValue Type, xmlAttrName xml.Name) (xmlAttr xml.Attr, err error) {
 	var (
 		apnTypeString string
 	)
 
-	if apnTypeBitmask.XMLUseNumber {
-		apnTypeString = strconv.Itoa(int(apnTypeIndex))
+	if apnTypeProxy.option.xmlIsArray {
+		apnTypeString = strings.Join(apnTypeProxy.XMLMap.GetStringArray(apnTypeValue), apnTypeProxy.option.xmlArrayHasSeparator)
 	} else {
-		apnTypeString = apnTypeBitmask.GetString(apnTypeIndex, apnTypeBitmask.XMLSeparator)
-	}
+		if apnTypeProxy.option.xmlIsString {
+			apnTypeString = apnTypeProxy.XMLMap.GetString(apnTypeValue)
+		}
 
-	if !apnTypeBitmask.XMLUseNumber && apnTypeBitmask.XMLUseUpper {
-		apnTypeString = strings.ToUpper(apnTypeString)
+		if apnTypeProxy.option.xmlIsNumber {
+			if apnTypeProxy.option.xmlNumberIsOrder {
+				apnTypeString = apnTypeProxy.XMLMap.GetString(apnTypeValue)
+			}
+
+			if apnTypeProxy.option.xmlNumberIsIndex {
+				apnTypeString = strconv.Itoa(int(apnTypeProxy.XMLMap.GetValue(apnTypeValue)))
+			}
+		}
 	}
 
 	return xml.Attr{
 		Name:  xmlAttrName,
 		Value: apnTypeString,
-	}, nil
+	}, err
 }
 
-// UnmarshalXMLValue parses an XML attribute into the bitmask value.
-// If XMLUseNumber is true, expects an integer; otherwise, expects a string split by XMLSeparator.
-// Empty values are treated as IndexNone.
-func (apnTypeBitmask *APNTypeCoreBitmask[Type]) UnmarshalXMLValue(apnTypeIndex *Type, xmlAttr xml.Attr) error {
-	var (
-		_apnTypeIndex int
-		err           error
-	)
-
-	if xmlAttr.Value == "" {
-		*apnTypeIndex = apnTypeBitmask.IndexNone
+// UnmarshalXMLValue deserializes an XML attribute into the APN type value according to configured options.
+// Handles different formats:
+//   - Array: splits by separator and processes each string
+//   - String: processes the string directly
+//   - Number: converts to integer and validates range (for index-based numbers)
+//
+// Returns an error if parsing fails or if any value is invalid.
+func (apnTypeProxy *APNTypeCoreProxy[Type]) UnmarshalXMLValue(apnTypeValue *Type, xmlAttr xml.Attr) error {
+	if apnTypeProxy.option.xmlIsArray {
+		apnTypeStringArray := strings.Split(xmlAttr.Value, apnTypeProxy.option.xmlArrayHasSeparator)
+		return apnTypeProxy.XMLMap.SetStringArray(apnTypeValue, apnTypeStringArray)
 	} else {
-		if apnTypeBitmask.XMLUseNumber {
-			_apnTypeIndex, err = strconv.Atoi(xmlAttr.Value)
-			if err != nil {
-				return fmt.Errorf("apn auth type has invalid number: %v", err)
+		if apnTypeProxy.option.xmlIsString {
+			return apnTypeProxy.XMLMap.SetString(apnTypeValue, xmlAttr.Value)
+		}
+
+		if apnTypeProxy.option.xmlIsNumber {
+			if apnTypeProxy.option.xmlNumberIsOrder {
+				return apnTypeProxy.XMLMap.SetString(apnTypeValue, xmlAttr.Value)
 			}
 
-			if _apnTypeIndex < int(apnTypeBitmask.IndexNone) || int(apnTypeBitmask.IndexMax) <= _apnTypeIndex {
-				return fmt.Errorf("apn auth type has out of range number: %d", _apnTypeIndex)
-			}
+			if apnTypeProxy.option.xmlNumberIsIndex {
+				apnTypeIndex, err := strconv.Atoi(xmlAttr.Value)
+				if err != nil {
+					return fmt.Errorf("apn type has invalid number: %v", err)
+				}
 
-			*apnTypeIndex = Type(_apnTypeIndex)
-		} else {
-			return apnTypeBitmask.SetString(apnTypeIndex, xmlAttr.Value, apnTypeBitmask.XMLSeparator)
+				if apnTypeIndex < int(apnTypeProxy.XMLMap.NoneIndex) || int(apnTypeProxy.XMLMap.MaxIndex) <= apnTypeIndex {
+					return fmt.Errorf("apn type has out of range number: %d", apnTypeIndex)
+				}
+
+				*apnTypeValue = Type(apnTypeIndex)
+			}
 		}
 	}
 
 	return nil
-}
-
-// MarshalJSONValue serializes the bitmask to JSON as an array of flag strings.
-func (apnTypeBitmask *APNTypeCoreBitmask[Type]) MarshalJSONValue(apnTypeIndex Type) (jsonByte []byte, err error) {
-	return json.Marshal(apnTypeBitmask.GetStringArray(apnTypeIndex))
-}
-
-// UnmarshalJSONValue parses a JSON array of strings into the bitmask value.
-func (apnTypeBitmask *APNTypeCoreBitmask[Type]) UnmarshalJSONValue(apnTypeIndex *Type, jsonByte []byte) error {
-	var (
-		apnTypeStringArray []string
-		err                error
-	)
-
-	err = json.Unmarshal(jsonByte, &apnTypeStringArray)
-	if err != nil {
-		return err
-	}
-
-	return apnTypeBitmask.SetStringArray(apnTypeIndex, apnTypeStringArray)
 }
 
 //--------------------------------------------------------------------------------//
 // APNType BaseType
 //--------------------------------------------------------------------------------//
 
-// APNTypeBaseType represents bitmask flags for APN types (e.g., "default", "mms", "supl").
-// Commonly used in Android APN configuration files to specify APN purpose.
+// APNTypeBaseType represents the base capabilities of an APN.
+// This is a bitmask type where multiple capabilities can be combined.
+// Common values include DEFAULT, MMS, SUPL, DUN, HIPRI, etc.
 type APNTypeBaseType int
 
 const (
@@ -512,12 +515,13 @@ const (
 	APNTYPE_BASE_TYPE_ALL = APNTYPE_BASE_TYPE_MAX - 1
 )
 
-// APNTypeBaseTypeConfig is the shared configuration for APNTypeBaseType,
-// using comma separators and string values in XML/JSON.
-var APNTypeBaseTypeConfig = NewAPNTypeCoreBitmask(
+// apnTypeBaseTypeStorage is the shared proxy instance for APNTypeBaseType serialization.
+// Configured for:
+//   - JSON: array format
+//   - XML: array format with comma separator
+//   - XML: number representation (not string)
+var apnTypeBaseTypeStorage = NewAPNTypeCoreProxy(
 	APNTYPE_BASE_TYPE_NONE,
-	APNTYPE_BASE_TYPE_DEFAULT,
-	APNTYPE_BASE_TYPE_ALL,
 	APNTYPE_BASE_TYPE_MAX,
 	map[APNTypeBaseType]string{
 		APNTYPE_BASE_TYPE_NONE:       "none",
@@ -540,60 +544,46 @@ var APNTypeBaseTypeConfig = NewAPNTypeCoreBitmask(
 		APNTYPE_BASE_TYPE_OEMPAID:    "oem_paid",
 		APNTYPE_BASE_TYPE_OEMPRIVATE: "oem_private",
 	},
-	NewAPNTypeCoreOption().SetTextSeparator(",").SetXMLSeparator(","),
+	NewAPNTypeCoreProxyOption().SetJSONIsArray(true).SetXMLIsArray(",").SetXMLIsString(false),
 )
 
-// GetStringArray returns the list of APN type flags set in this value.
-func (apnBaseType APNTypeBaseType) GetStringArray() []string {
-	return APNTypeBaseTypeConfig.GetStringArray(apnBaseType)
-}
-
-// GetString returns a string representation of the APN type flags, joined by the given separator.
-func (apnBaseType APNTypeBaseType) GetString(separator string) string {
-	return APNTypeBaseTypeConfig.GetString(apnBaseType, separator)
-}
-
-// SetStringArray sets the APN type flags from a slice of strings.
-func (apnBaseType *APNTypeBaseType) SetStringArray(apnBaseTypeStringArray []string) error {
-	return APNTypeBaseTypeConfig.SetStringArray(apnBaseType, apnBaseTypeStringArray)
-}
-
-// SetString sets the APN type flags from a string, split by the given separator.
-func (apnBaseType *APNTypeBaseType) SetString(apnBaseTypeString string, separator string) error {
-	return APNTypeBaseTypeConfig.SetStringArray(apnBaseType, strings.Split(apnBaseTypeString, separator))
-}
-
-// String returns a comma-separated string of APN type flags (e.g., "default,mms").
+// String returns a pipe-separated string of all set capabilities.
+// For example: "default|mms|supl"
 func (apnBaseType APNTypeBaseType) String() string {
-	return APNTypeBaseTypeConfig.GetText(apnBaseType)
+	return strings.Join(apnTypeBaseTypeStorage.JSONMap.GetStringArray(apnBaseType), "|")
 }
 
-// MarshalXMLAttr implements xml.MarshalerAttr for use in XML attributes.
-func (apnBaseType APNTypeBaseType) MarshalXMLAttr(xmlAttr xml.Name) (attr xml.Attr, err error) {
-	return APNTypeBaseTypeConfig.MarshalXMLValue(apnBaseType, xmlAttr)
-}
-
-// UnmarshalXMLAttr implements xml.UnmarshalerAttr for parsing from XML attributes.
-func (apnBaseType *APNTypeBaseType) UnmarshalXMLAttr(xmlAttr xml.Attr) error {
-	return APNTypeBaseTypeConfig.UnmarshalXMLValue(apnBaseType, xmlAttr)
-}
-
-// MarshalJSON implements json.Marshaler for serialization to JSON.
+// MarshalJSON serializes the APNTypeBaseType to JSON according to the configured options.
+// Returns the JSON bytes and any error from serialization.
 func (apnBaseType APNTypeBaseType) MarshalJSON() ([]byte, error) {
-	return APNTypeBaseTypeConfig.MarshalJSONValue(apnBaseType)
+	return apnTypeBaseTypeStorage.MarshalJSONValue(apnBaseType)
 }
 
-// UnmarshalJSON implements json.Unmarshaler for parsing from JSON.
+// UnmarshalJSON deserializes JSON data into the APNTypeBaseType according to configured options.
+// Returns an error if unmarshaling fails or if any value is invalid.
 func (apnBaseType *APNTypeBaseType) UnmarshalJSON(jsonData []byte) error {
-	return APNTypeBaseTypeConfig.UnmarshalJSONValue(apnBaseType, jsonData)
+	return apnTypeBaseTypeStorage.UnmarshalJSONValue(apnBaseType, jsonData)
+}
+
+// MarshalXMLAttr serializes the APNTypeBaseType to an XML attribute according to configured options.
+// Returns an xml.Attr with the specified name and serialized value.
+func (apnBaseType APNTypeBaseType) MarshalXMLAttr(xmlAttrName xml.Name) (attr xml.Attr, err error) {
+	return apnTypeBaseTypeStorage.MarshalXMLValue(apnBaseType, xmlAttrName)
+}
+
+// UnmarshalXMLAttr deserializes an XML attribute into the APNTypeBaseType according to configured options.
+// Returns an error if parsing fails or if any value is invalid.
+func (apnBaseType *APNTypeBaseType) UnmarshalXMLAttr(xmlAttr xml.Attr) error {
+	return apnTypeBaseTypeStorage.UnmarshalXMLValue(apnBaseType, xmlAttr)
 }
 
 //--------------------------------------------------------------------------------//
 // APNType AuthType
 //--------------------------------------------------------------------------------//
 
-// APNTypeAuthType represents bitmask flags for APN authentication types (PAP, CHAP).
-// Used to specify which authentication protocols are enabled for an APN.
+// APNTypeAuthType represents the authentication type for an APN.
+// This is a bitmask type, though typically only one authentication method is used.
+// Values include NONE, PAP, and CHAP.
 type APNTypeAuthType int
 
 const (
@@ -605,80 +595,163 @@ const (
 	APNTYPE_AUTH_TYPE_ALL = APNTYPE_AUTH_TYPE_MAX - 1
 )
 
-// APNTypeAuthTypeConfig is the shared configuration for APNTypeAuthType,
-// using numeric values in XML and comma separators in JSON/text.
-var APNTypeAuthTypeConfig = NewAPNTypeCoreBitmask(
+// apnTypeAuthTypeStorage is the shared proxy instance for APNTypeAuthType serialization.
+// Configured for:
+//   - JSON: array format
+//   - XML: number representation (not array, not string)
+var apnTypeAuthTypeStorage = NewAPNTypeCoreProxy(
 	APNTYPE_AUTH_TYPE_NONE,
-	APNTYPE_AUTH_TYPE_PAP,
-	APNTYPE_AUTH_TYPE_ALL,
 	APNTYPE_AUTH_TYPE_MAX,
 	map[APNTypeAuthType]string{
 		APNTYPE_AUTH_TYPE_NONE: "none",
 		APNTYPE_AUTH_TYPE_PAP:  "pap",
 		APNTYPE_AUTH_TYPE_CHAP: "chap",
 	},
-	NewAPNTypeCoreOption().
-		SetTextSeparator(",").
-		SetXMLUseNumber(true).
-		SetXMLSeparator("|"),
+	NewAPNTypeCoreProxyOption().SetJSONIsArray(true).SetXMLIsNumber(false),
 )
 
-// GetStringArray returns the list of authentication type flags set in this value.
-func (apnAuthType APNTypeAuthType) GetStringArray() []string {
-	return APNTypeAuthTypeConfig.GetStringArray(apnAuthType)
-}
-
-// GetString returns a string representation of the auth type flags, joined by the given separator.
-func (apnAuthType APNTypeAuthType) GetString(separator string) string {
-	return APNTypeAuthTypeConfig.GetString(apnAuthType, separator)
-}
-
-// SetStringArray sets the auth type flags from a slice of strings.
-func (apnAuthType *APNTypeAuthType) SetStringArray(apnAuthTypeStringArray []string) error {
-	return APNTypeAuthTypeConfig.SetStringArray(apnAuthType, apnAuthTypeStringArray)
-}
-
-// SetString sets the auth type flags from a string, split by the given separator.
-func (apnAuthType *APNTypeAuthType) SetString(apnAuthTypeString string, separator string) error {
-	return APNTypeAuthTypeConfig.SetStringArray(apnAuthType, strings.Split(apnAuthTypeString, separator))
-}
-
-// String returns a comma-separated string of auth type flags (e.g., "pap,chap").
+// String returns a pipe-separated string of all set authentication types.
+// For example: "pap|chap" (though typically only one is set)
 func (apnAuthType APNTypeAuthType) String() string {
-	return APNTypeAuthTypeConfig.GetText(apnAuthType)
+	return strings.Join(apnTypeAuthTypeStorage.JSONMap.GetStringArray(apnAuthType), "|")
 }
 
-// MarshalXMLAttr implements xml.MarshalerAttr for use in XML attributes.
-func (apnAuthType APNTypeAuthType) MarshalXMLAttr(xmlAttr xml.Name) (attr xml.Attr, err error) {
-	return APNTypeAuthTypeConfig.MarshalXMLValue(apnAuthType, xmlAttr)
-}
-
-// UnmarshalXMLAttr implements xml.UnmarshalerAttr for parsing from XML attributes.
-func (apnAuthType *APNTypeAuthType) UnmarshalXMLAttr(xmlAttr xml.Attr) error {
-	return APNTypeAuthTypeConfig.UnmarshalXMLValue(apnAuthType, xmlAttr)
-}
-
-// MarshalJSON implements json.Marshaler for serialization to JSON.
+// MarshalJSON serializes the APNTypeAuthType to JSON according to the configured options.
+// Returns the JSON bytes and any error from serialization.
 func (apnAuthType APNTypeAuthType) MarshalJSON() ([]byte, error) {
-	return APNTypeAuthTypeConfig.MarshalJSONValue(apnAuthType)
+	return apnTypeAuthTypeStorage.MarshalJSONValue(apnAuthType)
 }
 
-// UnmarshalJSON implements json.Unmarshaler for parsing from JSON.
+// UnmarshalJSON deserializes JSON data into the APNTypeAuthType according to configured options.
+// Returns an error if unmarshaling fails or if any value is invalid.
 func (apnAuthType *APNTypeAuthType) UnmarshalJSON(jsonData []byte) error {
-	return APNTypeAuthTypeConfig.UnmarshalJSONValue(apnAuthType, jsonData)
+	return apnTypeAuthTypeStorage.UnmarshalJSONValue(apnAuthType, jsonData)
+}
+
+// MarshalXMLAttr serializes the APNTypeAuthType to an XML attribute according to configured options.
+// Returns an xml.Attr with the specified name and serialized value.
+func (apnAuthType APNTypeAuthType) MarshalXMLAttr(xmlAttrName xml.Name) (attr xml.Attr, err error) {
+	return apnTypeAuthTypeStorage.MarshalXMLValue(apnAuthType, xmlAttrName)
+}
+
+// UnmarshalXMLAttr deserializes an XML attribute into the APNTypeAuthType according to configured options.
+// Returns an error if parsing fails or if any value is invalid.
+func (apnAuthType *APNTypeAuthType) UnmarshalXMLAttr(xmlAttr xml.Attr) error {
+	return apnTypeAuthTypeStorage.UnmarshalXMLValue(apnAuthType, xmlAttr)
+}
+
+//--------------------------------------------------------------------------------//
+// APNType NetworkType
+//--------------------------------------------------------------------------------//
+
+// APNTypeNetworkType represents the network technologies supported by an APN.
+// This is a bitmask type where multiple network types can be combined.
+// Values include GPRS, EDGE, UMTS, LTE, NR, etc.
+type APNTypeNetworkType int
+
+const (
+	APNTYPE_NETWORK_TYPE_NONE APNTypeNetworkType = 0
+	APNTYPE_NETWORK_TYPE_GPRS APNTypeNetworkType = 1 << (iota - 1)
+	APNTYPE_NETWORK_TYPE_EDGE
+	APNTYPE_NETWORK_TYPE_UMTS
+	APNTYPE_NETWORK_TYPE_CDMA
+	APNTYPE_NETWORK_TYPE_EVDO_0
+	APNTYPE_NETWORK_TYPE_EVDO_A
+	APNTYPE_NETWORK_TYPE_1xRTT
+	APNTYPE_NETWORK_TYPE_HSDPA
+	APNTYPE_NETWORK_TYPE_HSUPA
+	APNTYPE_NETWORK_TYPE_HSPA
+	APNTYPE_NETWORK_TYPE_IDEN
+	APNTYPE_NETWORK_TYPE_EVDO_B
+	APNTYPE_NETWORK_TYPE_LTE
+	APNTYPE_NETWORK_TYPE_EHRPD
+	APNTYPE_NETWORK_TYPE_HSPAP
+	APNTYPE_NETWORK_TYPE_GSM
+	APNTYPE_NETWORK_TYPE_TD_SCDMA
+	APNTYPE_NETWORK_TYPE_IWLAN
+	APNTYPE_NETWORK_TYPE_LTE_CA
+	APNTYPE_NETWORK_TYPE_NR
+	APNTYPE_NETWORK_TYPE_MAX
+
+	APNTYPE_NETWORK_TYPE_ALL = APNTYPE_NETWORK_TYPE_MAX - 1
+)
+
+// apnTypeNetworkTypeStorage is the shared proxy instance for APNTypeNetworkType serialization.
+// Configured for:
+//   - JSON: array format
+//   - XML: array format with pipe separator
+//   - XML: number representation
+var apnTypeNetworkTypeStorage = NewAPNTypeCoreProxy(
+	APNTYPE_NETWORK_TYPE_NONE,
+	APNTYPE_NETWORK_TYPE_MAX,
+	map[APNTypeNetworkType]string{
+		APNTYPE_NETWORK_TYPE_NONE:     "unknown",
+		APNTYPE_NETWORK_TYPE_GPRS:     "gprs",
+		APNTYPE_NETWORK_TYPE_EDGE:     "edge",
+		APNTYPE_NETWORK_TYPE_UMTS:     "umts",
+		APNTYPE_NETWORK_TYPE_CDMA:     "cdma",
+		APNTYPE_NETWORK_TYPE_EVDO_0:   "evdo_0",
+		APNTYPE_NETWORK_TYPE_EVDO_A:   "evdo_a",
+		APNTYPE_NETWORK_TYPE_1xRTT:    "1xrtt",
+		APNTYPE_NETWORK_TYPE_HSDPA:    "hsdpa",
+		APNTYPE_NETWORK_TYPE_HSUPA:    "hsupa",
+		APNTYPE_NETWORK_TYPE_HSPA:     "hspa",
+		APNTYPE_NETWORK_TYPE_IDEN:     "iden",
+		APNTYPE_NETWORK_TYPE_EVDO_B:   "evdo_b",
+		APNTYPE_NETWORK_TYPE_LTE:      "lte",
+		APNTYPE_NETWORK_TYPE_EHRPD:    "ehrpd",
+		APNTYPE_NETWORK_TYPE_HSPAP:    "hspap",
+		APNTYPE_NETWORK_TYPE_GSM:      "gsm",
+		APNTYPE_NETWORK_TYPE_TD_SCDMA: "td_scdma",
+		APNTYPE_NETWORK_TYPE_IWLAN:    "iwlan",
+		APNTYPE_NETWORK_TYPE_LTE_CA:   "lte_ca",
+		APNTYPE_NETWORK_TYPE_NR:       "nr",
+	},
+	NewAPNTypeCoreProxyOption().SetJSONIsArray(true).SetXMLIsArray("|").SetXMLIsNumber(true),
+)
+
+// String returns a pipe-separated string of all set network types.
+// For example: "lte|nr"
+func (apnNetworkType APNTypeNetworkType) String() string {
+	return strings.Join(apnTypeNetworkTypeStorage.JSONMap.GetStringArray(apnNetworkType), "|")
+}
+
+// MarshalJSON serializes the APNTypeNetworkType to JSON according to the configured options.
+// Returns the JSON bytes and any error from serialization.
+func (apnNetworkType APNTypeNetworkType) MarshalJSON() ([]byte, error) {
+	return apnTypeNetworkTypeStorage.MarshalJSONValue(apnNetworkType)
+}
+
+// UnmarshalJSON deserializes JSON data into the APNTypeNetworkType according to configured options.
+// Returns an error if unmarshaling fails or if any value is invalid.
+func (apnNetworkType *APNTypeNetworkType) UnmarshalJSON(jsonData []byte) error {
+	return apnTypeNetworkTypeStorage.UnmarshalJSONValue(apnNetworkType, jsonData)
+}
+
+// MarshalXMLAttr serializes the APNTypeNetworkType to an XML attribute according to configured options.
+// Returns an xml.Attr with the specified name and serialized value.
+func (apnNetworkType APNTypeNetworkType) MarshalXMLAttr(xmlAttrName xml.Name) (attr xml.Attr, err error) {
+	return apnTypeNetworkTypeStorage.MarshalXMLValue(apnNetworkType, xmlAttrName)
+}
+
+// UnmarshalXMLAttr deserializes an XML attribute into the APNTypeNetworkType according to configured options.
+// Returns an error if parsing fails or if any value is invalid.
+func (apnNetworkType *APNTypeNetworkType) UnmarshalXMLAttr(xmlAttr xml.Attr) error {
+	return apnTypeNetworkTypeStorage.UnmarshalXMLValue(apnNetworkType, xmlAttr)
 }
 
 //--------------------------------------------------------------------------------//
 // APNType BearerProtocol
 //--------------------------------------------------------------------------------//
 
-// APNTypeBearerProtocol represents an enumeration of APN bearer protocols (e.g., "IP", "IPv6").
-// Specifies the IP protocol version or type used for the data connection.
+// APNTypeBearerProtocol represents the bearer protocol for an APN.
+// This is typically a single value (not a bitmask), though defined as int for consistency.
+// Values include IP, IPV4, IPV6, IPV4V6, PPP, NONIP, UNSTRUCTURED.
 type APNTypeBearerProtocol int
 
 const (
 	APNTYPE_BEARER_PROTOCOL_NONE APNTypeBearerProtocol = iota
-	APNTYPE_BEARER_PROTOCOL_IP
+	APNTYPE_BEARER_PROTOCOL_IP   APNTypeBearerProtocol = 1 << (iota - 1)
 	APNTYPE_BEARER_PROTOCOL_IPV4
 	APNTYPE_BEARER_PROTOCOL_IPV6
 	APNTYPE_BEARER_PROTOCOL_IPV4V6
@@ -688,11 +761,12 @@ const (
 	APNTYPE_BEARER_PROTOCOL_MAX
 )
 
-// APNTypeBearerProtocolConfig is the shared configuration for APNTypeBearerProtocol,
-// using uppercase string values in XML (e.g., "IPV4V6").
-var APNTypeBearerProtocolConfig = NewAPNTypeCoreEnum(
+// apnTypeBearerProtocolStorage is the shared proxy instance for APNTypeBearerProtocol serialization.
+// Configured for:
+//   - JSON: single value (not array)
+//   - XML: string representation
+var apnTypeBearerProtocolStorage = NewAPNTypeCoreProxy(
 	APNTYPE_BEARER_PROTOCOL_NONE,
-	APNTYPE_BEARER_PROTOCOL_IPV4V6,
 	APNTYPE_BEARER_PROTOCOL_MAX,
 	map[APNTypeBearerProtocol]string{
 		APNTYPE_BEARER_PROTOCOL_NONE:         "none",
@@ -704,42 +778,37 @@ var APNTypeBearerProtocolConfig = NewAPNTypeCoreEnum(
 		APNTYPE_BEARER_PROTOCOL_NONIP:        "non-ip",
 		APNTYPE_BEARER_PROTOCOL_UNSTRUCTURED: "unstructured",
 	},
-	NewAPNTypeCoreOption().SetXMLUseUpper(true),
+	NewAPNTypeCoreProxyOption().SetJSONIsArray(false).SetXMLIsString(true),
 )
 
-// GetString returns the string representation of the bearer protocol.
-func (apnBearerProtocol APNTypeBearerProtocol) GetString() string {
-	return APNTypeBearerProtocolConfig.GetString(apnBearerProtocol)
-}
-
-// SetString sets the bearer protocol by parsing a string (case-insensitive).
-func (apnBearerProtocol *APNTypeBearerProtocol) SetString(apnBearerProtocolString string) error {
-	return APNTypeBearerProtocolConfig.SetString(apnBearerProtocol, apnBearerProtocolString)
-}
-
 // String returns the string representation of the bearer protocol.
+// Since this is typically a single value, returns just that string.
 func (apnBearerProtocol APNTypeBearerProtocol) String() string {
-	return APNTypeBearerProtocolConfig.GetString(apnBearerProtocol)
+	return apnTypeBearerProtocolStorage.JSONMap.GetString(apnBearerProtocol)
 }
 
-// MarshalXMLAttr implements xml.MarshalerAttr for use in XML attributes.
-func (apnBearerProtocol APNTypeBearerProtocol) MarshalXMLAttr(xmlAttr xml.Name) (attr xml.Attr, err error) {
-	return APNTypeBearerProtocolConfig.MarshalXMLValue(apnBearerProtocol, xmlAttr)
-}
-
-// UnmarshalXMLAttr implements xml.UnmarshalerAttr for parsing from XML attributes.
-func (apnBearerProtocol *APNTypeBearerProtocol) UnmarshalXMLAttr(xmlAttr xml.Attr) error {
-	return APNTypeBearerProtocolConfig.UnmarshalXMLValue(apnBearerProtocol, xmlAttr)
-}
-
-// MarshalJSON implements json.Marshaler for serialization to JSON.
+// MarshalJSON serializes the APNTypeBearerProtocol to JSON according to the configured options.
+// Returns the JSON bytes and any error from serialization.
 func (apnBearerProtocol APNTypeBearerProtocol) MarshalJSON() ([]byte, error) {
-	return APNTypeBearerProtocolConfig.MarshalJSONValue(apnBearerProtocol)
+	return apnTypeBearerProtocolStorage.MarshalJSONValue(apnBearerProtocol)
 }
 
-// UnmarshalJSON implements json.Unmarshaler for parsing from JSON.
+// UnmarshalJSON deserializes JSON data into the APNTypeBearerProtocol according to configured options.
+// Returns an error if unmarshaling fails or if the value is invalid.
 func (apnBearerProtocol *APNTypeBearerProtocol) UnmarshalJSON(jsonData []byte) error {
-	return APNTypeBearerProtocolConfig.UnmarshalJSONValue(apnBearerProtocol, jsonData)
+	return apnTypeBearerProtocolStorage.UnmarshalJSONValue(apnBearerProtocol, jsonData)
+}
+
+// MarshalXMLAttr serializes the APNTypeBearerProtocol to an XML attribute according to configured options.
+// Returns an xml.Attr with the specified name and serialized value.
+func (apnBearerProtocol APNTypeBearerProtocol) MarshalXMLAttr(xmlAttrName xml.Name) (attr xml.Attr, err error) {
+	return apnTypeBearerProtocolStorage.MarshalXMLValue(apnBearerProtocol, xmlAttrName)
+}
+
+// UnmarshalXMLAttr deserializes an XML attribute into the APNTypeBearerProtocol according to configured options.
+// Returns an error if parsing fails or if the value is invalid.
+func (apnBearerProtocol *APNTypeBearerProtocol) UnmarshalXMLAttr(xmlAttr xml.Attr) error {
+	return apnTypeBearerProtocolStorage.UnmarshalXMLValue(apnBearerProtocol, xmlAttr)
 }
 
 //--------------------------------------------------------------------------------//

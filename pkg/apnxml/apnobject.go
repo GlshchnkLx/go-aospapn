@@ -1,10 +1,10 @@
 // # APN Object
 //
-// File apnobject provides structures and utilities for handling APN (Access Point Name)
+// File defines structures and utilities for handling APN (Access Point Name)
 // configuration data commonly used in mobile network settings. It supports XML marshaling
 // and unmarshaling, validation, and cloning of APN configurations.
 //
-// The package defines a modular APN object composed of several units:
+// The package defines a modular APN object composed of several objects:
 //   - Root: Carrier, MCC, MNC identification
 //   - Base: APN name, type, profile ID
 //   - Auth: Authentication type, username, password
@@ -15,12 +15,13 @@
 //   - Limit: Connection limits
 //   - Other: Miscellaneous flags and settings
 //
-// Each unit implements the APNObjectInterface, supporting Clone and Validate methods.
-// The main APNObject type aggregates all units and handles XML serialization via
+// Each object implements the APNObjectInterface, supporting Clone and Validate methods.
+// The main APNObject type aggregates all objects and handles XML serialization via
 // a helper struct to manage optional fields correctly.
 package apnxml
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"strings"
@@ -30,9 +31,9 @@ import (
 // APNObject Interface
 //--------------------------------------------------------------------------------//
 
-// APNObjectInterface defines the contract for APN configuration units.
-// Each unit must implement Clone to produce a deep copy and Validate to check
-// if the unit contains sufficient/valid data.
+// APNObjectInterface defines the contract for APN configuration objects.
+// Each object must implement Clone to produce a deep copy and Validate to check
+// if the object contains sufficient/valid data.
 type APNObjectInterface[Type any] interface {
 	Clone() Type
 	Validate() bool
@@ -42,7 +43,7 @@ type APNObjectInterface[Type any] interface {
 // APNObject Core & Helper
 //--------------------------------------------------------------------------------//
 
-// APNObject represents a complete APN configuration, composed of optional sub-units.
+// APNObject represents a complete APN configuration, composed of optional sub-objects.
 // It embeds APNObjectRoot and optionally includes Base, Auth, Bearer, Proxy, Mms, Mvno,
 // Limit, and Other configuration blocks. It also maintains a map for grouping by type.
 //
@@ -60,7 +61,7 @@ type APNObject struct {
 	Limit  *APNObjectLimit  `json:"limit,omitempty"`
 	Other  *APNObjectOther  `json:"other,omitempty"`
 
-	GroupMapByType map[string]APNObject `json:"groupMap,omitempty"`
+	GroupMapByType map[string]*APNObject `json:"groupMap,omitempty"`
 }
 
 // helperAPNObject is an internal helper struct used to correctly marshal/unmarshal
@@ -76,6 +77,16 @@ type helperAPNObject struct {
 	*APNObjectMvno   `xml:",omitempty"`
 	*APNObjectLimit  `xml:",omitempty"`
 	*APNObjectOther  `xml:",omitempty"`
+}
+
+// String returns the string representation of the APNObject.
+func (apnObject APNObject) String() string {
+	jsonData, err := json.MarshalIndent(apnObject, "", "\t")
+	if err != nil {
+		return fmt.Sprintf("error: %v", err)
+	}
+
+	return string(jsonData)
 }
 
 // MarshalXML implements custom XML marshaling for APNObject.
@@ -124,33 +135,43 @@ func (apnPointer *APNObject) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.
 	return nil
 }
 
-// Validate checks whether the APNObject is valid by delegating to its Root unit.
+// Validate checks whether the APNObject is valid by delegating to its Root object.
 // A valid APN must have non-nil Mcc and Mnc in its root.
 func (apnObject APNObject) Validate() bool {
 	return apnObject.APNObjectRoot.Validate()
 }
 
-// Clone creates a deep copy of the APNObject, cloning all its sub-units.
-func (apnObject APNObject) Clone() (_apnObject APNObject) {
-	_apnObject.APNObjectRoot = helperApnPointerClone(apnObject.APNObjectRoot)
-	_apnObject.Base = helperApnPointerClone(apnObject.Base)
-	_apnObject.Auth = helperApnPointerClone(apnObject.Auth)
-	_apnObject.Bearer = helperApnPointerClone(apnObject.Bearer)
-	_apnObject.Proxy = helperApnPointerClone(apnObject.Proxy)
-	_apnObject.Mms = helperApnPointerClone(apnObject.Mms)
-	_apnObject.Mvno = helperApnPointerClone(apnObject.Mvno)
-	_apnObject.Limit = helperApnPointerClone(apnObject.Limit)
-	_apnObject.Other = helperApnPointerClone(apnObject.Other)
+// Clone creates a deep copy of the APNObject, cloning all its sub-objects.
+func (apnPointer *APNObject) Clone() *APNObject {
+	_apnPointer := &APNObject{
+		APNObjectRoot: helperApnPointerClone(apnPointer.APNObjectRoot),
+		Base:          helperApnPointerClone(apnPointer.Base),
+		Auth:          helperApnPointerClone(apnPointer.Auth),
+		Bearer:        helperApnPointerClone(apnPointer.Bearer),
+		Proxy:         helperApnPointerClone(apnPointer.Proxy),
+		Mms:           helperApnPointerClone(apnPointer.Mms),
+		Mvno:          helperApnPointerClone(apnPointer.Mvno),
+		Limit:         helperApnPointerClone(apnPointer.Limit),
+		Other:         helperApnPointerClone(apnPointer.Other),
+	}
 
-	return
+	if apnPointer.GroupMapByType != nil {
+		_apnPointer.GroupMapByType = map[string]*APNObject{}
+
+		for apnPointerChildBaseTypeString, apnPointerChild := range apnPointer.GroupMapByType {
+			_apnPointer.GroupMapByType[apnPointerChildBaseTypeString] = apnPointerChild.Clone()
+		}
+	}
+
+	return _apnPointer
 }
 
 //--------------------------------------------------------------------------------//
-// APN Unit Root
+// APN Object Root
 //--------------------------------------------------------------------------------//
 
 // APNObjectRoot contains the core identifying fields of an APN: carrier name, carrier ID, MCC, and MNC.
-// It is the minimal required unit for a valid APN configuration.
+// It is the minimal required object for a valid APN configuration.
 type APNObjectRoot struct {
 	APNObjectInterface[APNObjectRoot] `json:"-" xml:"-"`
 
@@ -298,7 +319,7 @@ func (apnRoot APNObjectRoot) GetPLMN() string {
 }
 
 //--------------------------------------------------------------------------------//
-// APN Unit Base
+// APN Object Base
 //--------------------------------------------------------------------------------//
 
 // APNObjectBase contains basic APN settings: the APN string, connection type, and profile ID.
@@ -342,7 +363,7 @@ func (apnPointerBase *APNObjectBase) Validate() bool {
 }
 
 //--------------------------------------------------------------------------------//
-// APN Unit Auth
+// APN Object Auth
 //--------------------------------------------------------------------------------//
 
 // APNObjectAuth contains authentication settings: type, username, and password.
@@ -393,7 +414,7 @@ func (apnPointerAuth *APNObjectAuth) Validate() bool {
 }
 
 //--------------------------------------------------------------------------------//
-// APN Unit Bearer
+// APN Object Bearer
 //--------------------------------------------------------------------------------//
 
 // APNObjectBearer contains bearer-level settings: protocol, roaming protocol, MTU, and server.
@@ -431,7 +452,7 @@ func (apnPointerBearer *APNObjectBearer) Validate() bool {
 }
 
 //--------------------------------------------------------------------------------//
-// APN Unit Proxy
+// APN Object Proxy
 //--------------------------------------------------------------------------------//
 
 // APNObjectProxy contains proxy server settings: server address and port.
@@ -465,7 +486,7 @@ func (apnPointerProxy *APNObjectProxy) Validate() bool {
 }
 
 //--------------------------------------------------------------------------------//
-// APN Unit MMS
+// APN Object MMS
 //--------------------------------------------------------------------------------//
 
 // APNObjectMms contains MMS (Multimedia Messaging Service) settings: MMSC URL, proxy, and port.
@@ -501,7 +522,7 @@ func (apnPointerMms *APNObjectMms) Validate() bool {
 }
 
 //--------------------------------------------------------------------------------//
-// APN Unit MVNO
+// APN Object MVNO
 //--------------------------------------------------------------------------------//
 
 // APNObjectMvno contains MVNO (Mobile Virtual Network Operator) matching settings: type and data.
@@ -535,7 +556,7 @@ func (apnPointerMvno *APNObjectMvno) Validate() bool {
 }
 
 //--------------------------------------------------------------------------------//
-// APN Unit Limit
+// APN Object Limit
 //--------------------------------------------------------------------------------//
 
 // APNObjectLimit contains connection limiting settings: maximum concurrent connections and duration.
@@ -569,16 +590,16 @@ func (apnPointerLimit *APNObjectLimit) Validate() bool {
 }
 
 //--------------------------------------------------------------------------------//
-// APN Unit Other
+// APN Object Other
 //--------------------------------------------------------------------------------//
 
-// APNObjectOther contains miscellaneous flags and settings not covered by other units.
+// APNObjectOther contains miscellaneous flags and settings not covered by other objects.
 // Includes network restrictions, modem settings, and carrier control flags.
 type APNObjectOther struct {
 	APNObjectInterface[APNObjectOther] `json:"-" xml:"-"`
 
 	// Network restrictions
-	NetworkTypeBitmask *string `json:"networkTypeBitmask,omitempty" xml:"network_type_bitmask,attr,omitempty"`
+	NetworkTypeBitmask *APNTypeNetworkType `json:"networkTypeBitmask,omitempty" xml:"network_type_bitmask,attr,omitempty"`
 
 	// Modem settings
 	ModemCognitive *bool `json:"modemCognitive,omitempty" xml:"modem_cognitive,attr,omitempty"`
