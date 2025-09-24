@@ -82,7 +82,7 @@ type helperAPNObject struct {
 
 // Clone creates a deep copy of the APNObject, cloning all its sub-objects.
 func (apnPointerCore *APNObject) Clone() *APNObject {
-	apnPointer := &APNObject{
+	apnObject := APNObject{
 		APNObjectRoot: helperApnPointerClone(apnPointerCore.APNObjectRoot),
 		Base:          helperApnPointerClone(apnPointerCore.Base),
 		Auth:          helperApnPointerClone(apnPointerCore.Auth),
@@ -95,14 +95,14 @@ func (apnPointerCore *APNObject) Clone() *APNObject {
 	}
 
 	if apnPointerCore.GroupMapByType != nil {
-		apnPointer.GroupMapByType = map[APNTypeBaseType]*APNObject{}
+		apnObject.GroupMapByType = map[APNTypeBaseType]*APNObject{}
 
 		for apnPointerBaseTypeString, apnPointer := range apnPointerCore.GroupMapByType {
-			apnPointer.GroupMapByType[apnPointerBaseTypeString] = apnPointer.Clone()
+			apnObject.GroupMapByType[apnPointerBaseTypeString] = apnPointer.Clone()
 		}
 	}
 
-	return apnPointer
+	return &apnObject
 }
 
 // Validate checks whether the APNObject is valid by delegating to its Root object.

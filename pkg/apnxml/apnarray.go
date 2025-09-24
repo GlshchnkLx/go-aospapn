@@ -83,7 +83,7 @@ func (apnArray APNArray) MarshalXML(xmlEncoder *xml.Encoder, _ xml.StartElement)
 			})
 		} else {
 			var (
-				apnPointerBaseTypeArray []string
+				apnPointerBaseTypeArray []APNTypeBaseType
 				apnPointer              *APNObject
 			)
 
@@ -91,7 +91,9 @@ func (apnArray APNArray) MarshalXML(xmlEncoder *xml.Encoder, _ xml.StartElement)
 				apnPointerBaseTypeArray = append(apnPointerBaseTypeArray, apnPointerBaseTypeString)
 			}
 
-			sort.Strings(apnPointerBaseTypeArray)
+			sort.Slice(apnPointerBaseTypeArray, func(i, j int) bool {
+				return apnPointerBaseTypeArray[i] < apnPointerBaseTypeArray[j]
+			})
 
 			for _, apnPointerBaseTypeString := range apnPointerBaseTypeArray {
 				apnPointer = apnPointerRoot.GroupMapByType[apnPointerBaseTypeString]
@@ -183,7 +185,7 @@ func (apnArray *APNArray) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.Sta
 
 		apnObject := APNObject{
 			APNObjectRoot:  apnPointerRoot.Clone(),
-			GroupMapByType: map[string]*APNObject{},
+			GroupMapByType: map[APNTypeBaseType]*APNObject{},
 		}
 
 		apnObject.Carrier = apnObject.GetCarrier()
@@ -194,7 +196,7 @@ func (apnArray *APNArray) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.Sta
 			}
 
 			apnPointer.APNObjectRoot = nil
-			apnObject.GroupMapByType[apnPointer.Base.Type.String()] = apnPointer
+			apnObject.GroupMapByType[*apnPointer.Base.Type] = apnPointer
 		}
 
 		*apnArray = append(*apnArray, apnObject)
