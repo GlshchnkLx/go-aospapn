@@ -33,10 +33,11 @@ import (
 
 // APNObjectInterface defines the contract for APN configuration objects.
 // Each object must implement Clone to produce a deep copy and Validate to check
-// if the object contains sufficient/valid data.
+// if the object contains sufficient or valid data.
 type APNObjectInterface[Type any] interface {
 	Clone() Type
 	Validate() bool
+	IsLike(Type) bool
 }
 
 //--------------------------------------------------------------------------------//
@@ -44,7 +45,7 @@ type APNObjectInterface[Type any] interface {
 //--------------------------------------------------------------------------------//
 
 // APNObject represents a complete APN configuration, composed of optional sub-objects.
-// It embeds APNObjectRoot and optionally includes Base, Auth, Bearer, Proxy, Mms, Mvno,
+// It embeds APNObjectRoot and may include Base, Auth, Bearer, Proxy, Mms, Mvno,
 // Limit, and Other configuration blocks. It also maintains a map for grouping by type.
 //
 // Implements APNObjectInterface[APNObject] and custom XML marshaling/unmarshaling.
@@ -61,7 +62,7 @@ type APNObject struct {
 	Limit  *APNObjectLimit  `json:"limit,omitempty"`
 	Other  *APNObjectOther  `json:"other,omitempty"`
 
-	GroupMapByType map[string]*APNObject `json:"groupMap,omitempty"`
+	GroupMapByType map[APNTypeBaseType]*APNObject `json:"groupMap,omitempty"`
 }
 
 // helperAPNObject is an internal helper struct used to correctly marshal/unmarshal
@@ -79,9 +80,89 @@ type helperAPNObject struct {
 	*APNObjectOther  `xml:",omitempty"`
 }
 
-// String returns the string representation of the APNObject.
-func (apnObject APNObject) String() string {
-	jsonData, err := json.MarshalIndent(apnObject, "", "\t")
+// Clone creates a deep copy of the APNObject, cloning all its sub-objects.
+func (apnPointerCore *APNObject) Clone() *APNObject {
+	apnPointer := &APNObject{
+		APNObjectRoot: helperApnPointerClone(apnPointerCore.APNObjectRoot),
+		Base:          helperApnPointerClone(apnPointerCore.Base),
+		Auth:          helperApnPointerClone(apnPointerCore.Auth),
+		Bearer:        helperApnPointerClone(apnPointerCore.Bearer),
+		Proxy:         helperApnPointerClone(apnPointerCore.Proxy),
+		Mms:           helperApnPointerClone(apnPointerCore.Mms),
+		Mvno:          helperApnPointerClone(apnPointerCore.Mvno),
+		Limit:         helperApnPointerClone(apnPointerCore.Limit),
+		Other:         helperApnPointerClone(apnPointerCore.Other),
+	}
+
+	if apnPointerCore.GroupMapByType != nil {
+		apnPointer.GroupMapByType = map[APNTypeBaseType]*APNObject{}
+
+		for apnPointerBaseTypeString, apnPointer := range apnPointerCore.GroupMapByType {
+			apnPointer.GroupMapByType[apnPointerBaseTypeString] = apnPointer.Clone()
+		}
+	}
+
+	return apnPointer
+}
+
+// Validate checks whether the APNObject is valid by delegating to its Root object.
+// A valid APN must have non-nil Mcc and Mnc in its root.
+func (apnObjectCore APNObject) Validate() bool {
+	return apnObjectCore.APNObjectRoot.Validate()
+}
+
+// GetIsLikePointer returns the receiver if it matches the query APNObject,
+// or a matching entry from GroupMapByType if present. Returns nil if no match.
+func (apnPointerCore *APNObject) GetIsLikePointer(apnPointerQuery *APNObject) *APNObject {
+	if apnPointerCore == nil || apnPointerQuery == nil {
+		if apnPointerQuery == nil {
+			return apnPointerCore
+		} else {
+			return nil
+		}
+	}
+
+	if apnPointerCore.GroupMapByType != nil {
+		for _, apnPointer := range apnPointerCore.GroupMapByType {
+			apnPointer = apnPointer.GetIsLikePointer(apnPointerQuery)
+
+			if apnPointer != nil {
+				return apnPointer
+			}
+		}
+
+		return nil
+	}
+
+	if apnPointerCore.APNObjectRoot != nil {
+		if !apnPointerCore.APNObjectRoot.IsLike(apnPointerQuery.APNObjectRoot) {
+			return nil
+		}
+	}
+
+	if apnPointerCore.Base.IsLike(apnPointerQuery.Base) &&
+		apnPointerCore.Auth.IsLike(apnPointerQuery.Auth) &&
+		apnPointerCore.Bearer.IsLike(apnPointerQuery.Bearer) &&
+		apnPointerCore.Proxy.IsLike(apnPointerQuery.Proxy) &&
+		apnPointerCore.Mms.IsLike(apnPointerQuery.Mms) &&
+		apnPointerCore.Mvno.IsLike(apnPointerQuery.Mvno) &&
+		apnPointerCore.Limit.IsLike(apnPointerQuery.Limit) &&
+		apnPointerCore.Other.IsLike(apnPointerQuery.Other) {
+
+		return apnPointerCore
+	}
+
+	return nil
+}
+
+// IsLike returns true if the receiver matches the query APNObject.
+func (apnPointerCore *APNObject) IsLike(apnPointerQuery *APNObject) bool {
+	return apnPointerCore.GetIsLikePointer(apnPointerQuery) != nil
+}
+
+// String returns the JSON representation of the APNObject, indented for readability.
+func (apnObjectCore APNObject) String() string {
+	jsonData, err := json.MarshalIndent(apnObjectCore, "", "\t")
 	if err != nil {
 		return fmt.Sprintf("error: %v", err)
 	}
@@ -91,17 +172,17 @@ func (apnObject APNObject) String() string {
 
 // MarshalXML implements custom XML marshaling for APNObject.
 // It uses helperAPNObject to ensure optional fields are omitted when nil.
-func (apnObject APNObject) MarshalXML(xmlEncoder *xml.Encoder, xmlStart xml.StartElement) error {
+func (apnObjectCore APNObject) MarshalXML(xmlEncoder *xml.Encoder, xmlStart xml.StartElement) error {
 	_apnObject := helperAPNObject{
-		APNObjectRoot:   helperApnPointerClone(apnObject.APNObjectRoot),
-		APNObjectBase:   helperApnPointerClone(apnObject.Base),
-		APNObjectAuth:   helperApnPointerClone(apnObject.Auth),
-		APNObjectBearer: helperApnPointerClone(apnObject.Bearer),
-		APNObjectProxy:  helperApnPointerClone(apnObject.Proxy),
-		APNObjectMms:    helperApnPointerClone(apnObject.Mms),
-		APNObjectMvno:   helperApnPointerClone(apnObject.Mvno),
-		APNObjectLimit:  helperApnPointerClone(apnObject.Limit),
-		APNObjectOther:  helperApnPointerClone(apnObject.Other),
+		APNObjectRoot:   helperApnPointerClone(apnObjectCore.APNObjectRoot),
+		APNObjectBase:   helperApnPointerClone(apnObjectCore.Base),
+		APNObjectAuth:   helperApnPointerClone(apnObjectCore.Auth),
+		APNObjectBearer: helperApnPointerClone(apnObjectCore.Bearer),
+		APNObjectProxy:  helperApnPointerClone(apnObjectCore.Proxy),
+		APNObjectMms:    helperApnPointerClone(apnObjectCore.Mms),
+		APNObjectMvno:   helperApnPointerClone(apnObjectCore.Mvno),
+		APNObjectLimit:  helperApnPointerClone(apnObjectCore.Limit),
+		APNObjectOther:  helperApnPointerClone(apnObjectCore.Other),
 	}
 
 	err := xmlEncoder.EncodeElement(_apnObject, xmlStart)
@@ -114,7 +195,7 @@ func (apnObject APNObject) MarshalXML(xmlEncoder *xml.Encoder, xmlStart xml.Star
 
 // UnmarshalXML implements custom XML unmarshaling for APNObject.
 // It decodes into a helperAPNObject and then assigns cloned pointers to the receiver.
-func (apnPointer *APNObject) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.StartElement) error {
+func (apnPointerCore *APNObject) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.StartElement) error {
 	var _apnObject helperAPNObject
 
 	err := xmlDecoder.DecodeElement(&_apnObject, &xmlStart)
@@ -122,48 +203,17 @@ func (apnPointer *APNObject) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.
 		return err
 	}
 
-	apnPointer.APNObjectRoot = helperApnPointerClone(_apnObject.APNObjectRoot)
-	apnPointer.Base = helperApnPointerClone(_apnObject.APNObjectBase)
-	apnPointer.Auth = helperApnPointerClone(_apnObject.APNObjectAuth)
-	apnPointer.Bearer = helperApnPointerClone(_apnObject.APNObjectBearer)
-	apnPointer.Proxy = helperApnPointerClone(_apnObject.APNObjectProxy)
-	apnPointer.Mms = helperApnPointerClone(_apnObject.APNObjectMms)
-	apnPointer.Mvno = helperApnPointerClone(_apnObject.APNObjectMvno)
-	apnPointer.Limit = helperApnPointerClone(_apnObject.APNObjectLimit)
-	apnPointer.Other = helperApnPointerClone(_apnObject.APNObjectOther)
+	apnPointerCore.APNObjectRoot = helperApnPointerClone(_apnObject.APNObjectRoot)
+	apnPointerCore.Base = helperApnPointerClone(_apnObject.APNObjectBase)
+	apnPointerCore.Auth = helperApnPointerClone(_apnObject.APNObjectAuth)
+	apnPointerCore.Bearer = helperApnPointerClone(_apnObject.APNObjectBearer)
+	apnPointerCore.Proxy = helperApnPointerClone(_apnObject.APNObjectProxy)
+	apnPointerCore.Mms = helperApnPointerClone(_apnObject.APNObjectMms)
+	apnPointerCore.Mvno = helperApnPointerClone(_apnObject.APNObjectMvno)
+	apnPointerCore.Limit = helperApnPointerClone(_apnObject.APNObjectLimit)
+	apnPointerCore.Other = helperApnPointerClone(_apnObject.APNObjectOther)
 
 	return nil
-}
-
-// Validate checks whether the APNObject is valid by delegating to its Root object.
-// A valid APN must have non-nil Mcc and Mnc in its root.
-func (apnObject APNObject) Validate() bool {
-	return apnObject.APNObjectRoot.Validate()
-}
-
-// Clone creates a deep copy of the APNObject, cloning all its sub-objects.
-func (apnPointer *APNObject) Clone() *APNObject {
-	_apnPointer := &APNObject{
-		APNObjectRoot: helperApnPointerClone(apnPointer.APNObjectRoot),
-		Base:          helperApnPointerClone(apnPointer.Base),
-		Auth:          helperApnPointerClone(apnPointer.Auth),
-		Bearer:        helperApnPointerClone(apnPointer.Bearer),
-		Proxy:         helperApnPointerClone(apnPointer.Proxy),
-		Mms:           helperApnPointerClone(apnPointer.Mms),
-		Mvno:          helperApnPointerClone(apnPointer.Mvno),
-		Limit:         helperApnPointerClone(apnPointer.Limit),
-		Other:         helperApnPointerClone(apnPointer.Other),
-	}
-
-	if apnPointer.GroupMapByType != nil {
-		_apnPointer.GroupMapByType = map[string]*APNObject{}
-
-		for apnPointerChildBaseTypeString, apnPointerChild := range apnPointer.GroupMapByType {
-			_apnPointer.GroupMapByType[apnPointerChildBaseTypeString] = apnPointerChild.Clone()
-		}
-	}
-
-	return _apnPointer
 }
 
 //--------------------------------------------------------------------------------//
@@ -183,9 +233,9 @@ type APNObjectRoot struct {
 
 // Clone creates a deep copy of APNObjectRoot.
 // Returns nil if the root is invalid (missing MCC/MNC).
-func (apnPointerRoot *APNObjectRoot) Clone() (_apnPointerRoot *APNObjectRoot) {
+func (apnPointerRoot *APNObjectRoot) Clone() *APNObjectRoot {
 	if apnPointerRoot.Validate() {
-		_apnPointerRoot = &APNObjectRoot{
+		return &APNObjectRoot{
 			Carrier:   apnPointerRoot.Carrier,
 			CarrierID: helperClonePointer(apnPointerRoot.CarrierID),
 			Mcc:       helperClonePointer(apnPointerRoot.Mcc),
@@ -193,7 +243,7 @@ func (apnPointerRoot *APNObjectRoot) Clone() (_apnPointerRoot *APNObjectRoot) {
 		}
 	}
 
-	return
+	return nil
 }
 
 // Validate checks if APNObjectRoot has valid MCC and MNC fields.
@@ -204,6 +254,37 @@ func (apnPointerRoot *APNObjectRoot) Validate() bool {
 	}
 
 	return false
+}
+
+// IsLike returns true if the receiver matches the given APNObjectRoot.
+// Matching includes Carrier (ignoring common keywords), CarrierID, and PLMN (MCC+MNC).
+func (apnPointerRoot *APNObjectRoot) IsLike(apnPointer *APNObjectRoot) bool {
+	if apnPointerRoot == nil || apnPointer == nil {
+		return apnPointer == nil
+	}
+
+	var (
+		isLikeCarrierID = true
+		isLikePlmn      = true
+	)
+
+	if apnPointer.CarrierID != nil {
+		if apnPointerRoot.CarrierID == nil {
+			return false
+		}
+
+		isLikeCarrierID = *apnPointerRoot.CarrierID == *apnPointer.CarrierID
+	}
+
+	if apnPointer.Mcc != nil && apnPointer.Mnc != nil {
+		if apnPointerRoot.Mcc == nil || apnPointerRoot.Mnc == nil {
+			return false
+		}
+
+		isLikePlmn = (*apnPointerRoot.Mcc == *apnPointer.Mcc) && (*apnPointerRoot.Mnc == *apnPointer.Mnc)
+	}
+
+	return helperIsLikeString(apnPointerRoot.Carrier, apnPointer.Carrier) && isLikeCarrierID && isLikePlmn
 }
 
 // apnRootCarrierWordMask is a set of common carrier-related keywords to be filtered
@@ -328,21 +409,21 @@ type APNObjectBase struct {
 
 	Apn       *string          `json:"apn,omitempty"       xml:"apn,attr,omitempty"`
 	Type      *APNTypeBaseType `json:"type,omitempty" xml:"type,attr,omitempty"`
-	ProfileID *string          `json:"profileID,omitempty" xml:"profile_id,attr,omitempty"`
+	ProfileID *int             `json:"profileID,omitempty" xml:"profile_id,attr,omitempty"`
 }
 
 // Clone creates a deep copy of APNObjectBase.
 // Returns nil if the base is invalid (all fields nil).
-func (apnPointerBase *APNObjectBase) Clone() (_apnPointerBase *APNObjectBase) {
+func (apnPointerBase *APNObjectBase) Clone() *APNObjectBase {
 	if apnPointerBase.Validate() {
-		_apnPointerBase = &APNObjectBase{
+		return &APNObjectBase{
 			Apn:       helperClonePointer(apnPointerBase.Apn),
 			Type:      helperClonePointer(apnPointerBase.Type),
 			ProfileID: helperClonePointer(apnPointerBase.ProfileID),
 		}
 	}
 
-	return
+	return nil
 }
 
 // Validate checks if APNObjectBase has at least one non-nil field.
@@ -362,6 +443,17 @@ func (apnPointerBase *APNObjectBase) Validate() bool {
 	return false
 }
 
+// IsLike returns true if the receiver matches the given APNObjectBase.
+func (apnPointerBase *APNObjectBase) IsLike(apnPointer *APNObjectBase) bool {
+	if apnPointerBase == nil || apnPointer == nil {
+		return apnPointer == nil
+	}
+
+	return helperIsLikeStringPointer(apnPointerBase.Apn, apnPointer.Apn) &&
+		helperIsLikeMaskPointer(apnPointerBase.Type, apnPointer.Type) &&
+		helperIsLikeIntPointer(apnPointerBase.ProfileID, apnPointer.ProfileID)
+}
+
 //--------------------------------------------------------------------------------//
 // APN Object Auth
 //--------------------------------------------------------------------------------//
@@ -377,16 +469,16 @@ type APNObjectAuth struct {
 
 // Clone creates a deep copy of APNObjectAuth.
 // Returns nil if validation fails.
-func (apnPointerAuth *APNObjectAuth) Clone() (_apnPointerAuth *APNObjectAuth) {
+func (apnPointerAuth *APNObjectAuth) Clone() *APNObjectAuth {
 	if apnPointerAuth.Validate() {
-		_apnPointerAuth = &APNObjectAuth{
+		return &APNObjectAuth{
 			Type:     helperClonePointer(apnPointerAuth.Type),
 			Username: helperClonePointer(apnPointerAuth.Username),
 			Password: helperClonePointer(apnPointerAuth.Password),
 		}
 	}
 
-	return
+	return nil
 }
 
 // Validate checks if authentication type is set and ensures that if username or password
@@ -413,6 +505,17 @@ func (apnPointerAuth *APNObjectAuth) Validate() bool {
 	return false
 }
 
+// IsLike returns true if the receiver matches the given APNObjectAuth.
+func (apnPointerAuth *APNObjectAuth) IsLike(apnPointer *APNObjectAuth) bool {
+	if apnPointerAuth == nil || apnPointer == nil {
+		return apnPointer == nil
+	}
+
+	return helperIsLikeMaskPointer(apnPointerAuth.Type, apnPointer.Type) &&
+		helperIsLikeStringPointer(apnPointerAuth.Username, apnPointer.Username) &&
+		helperIsLikeStringPointer(apnPointerAuth.Password, apnPointer.Password)
+}
+
 //--------------------------------------------------------------------------------//
 // APN Object Bearer
 //--------------------------------------------------------------------------------//
@@ -429,9 +532,9 @@ type APNObjectBearer struct {
 
 // Clone creates a deep copy of APNObjectBearer.
 // Returns nil if validation fails.
-func (apnPointerBearer *APNObjectBearer) Clone() (_apnPointerBearer *APNObjectBearer) {
+func (apnPointerBearer *APNObjectBearer) Clone() *APNObjectBearer {
 	if apnPointerBearer.Validate() {
-		_apnPointerBearer = &APNObjectBearer{
+		return &APNObjectBearer{
 			Type:        helperClonePointer(apnPointerBearer.Type),
 			TypeRoaming: helperClonePointer(apnPointerBearer.TypeRoaming),
 			Mtu:         helperClonePointer(apnPointerBearer.Mtu),
@@ -439,7 +542,7 @@ func (apnPointerBearer *APNObjectBearer) Clone() (_apnPointerBearer *APNObjectBe
 		}
 	}
 
-	return
+	return nil
 }
 
 // Validate checks if at least one of Type or TypeRoaming is set.
@@ -449,6 +552,18 @@ func (apnPointerBearer *APNObjectBearer) Validate() bool {
 	}
 
 	return false
+}
+
+// IsLike returns true if the receiver matches the given APNObjectBearer.
+func (apnPointerBearer *APNObjectBearer) IsLike(apnPointer *APNObjectBearer) bool {
+	if apnPointerBearer == nil || apnPointer == nil {
+		return apnPointer == nil
+	}
+
+	return helperIsLikeMaskPointer(apnPointerBearer.Type, apnPointer.Type) &&
+		helperIsLikeMaskPointer(apnPointerBearer.TypeRoaming, apnPointer.TypeRoaming) &&
+		helperIsLikeIntPointer(apnPointerBearer.Mtu, apnPointer.Mtu) &&
+		helperIsLikeStringPointer(apnPointerBearer.Server, apnPointer.Server)
 }
 
 //--------------------------------------------------------------------------------//
@@ -465,15 +580,15 @@ type APNObjectProxy struct {
 
 // Clone creates a deep copy of APNObjectProxy.
 // Returns nil if validation fails.
-func (apnPointerProxy *APNObjectProxy) Clone() (_apnPointerProxy *APNObjectProxy) {
+func (apnPointerProxy *APNObjectProxy) Clone() *APNObjectProxy {
 	if apnPointerProxy.Validate() {
-		_apnPointerProxy = &APNObjectProxy{
+		return &APNObjectProxy{
 			Server: helperClonePointer(apnPointerProxy.Server),
 			Port:   helperClonePointer(apnPointerProxy.Port),
 		}
 	}
 
-	return
+	return nil
 }
 
 // Validate checks that both Server (non-empty) and Port are set.
@@ -483,6 +598,16 @@ func (apnPointerProxy *APNObjectProxy) Validate() bool {
 	}
 
 	return false
+}
+
+// IsLike returns true if the receiver matches the given APNObjectProxy.
+func (apnPointerProxy *APNObjectProxy) IsLike(apnPointer *APNObjectProxy) bool {
+	if apnPointerProxy == nil || apnPointer == nil {
+		return apnPointer == nil
+	}
+
+	return helperIsLikeStringPointer(apnPointerProxy.Server, apnPointer.Server) &&
+		helperIsLikeIntPointer(apnPointerProxy.Port, apnPointer.Port)
 }
 
 //--------------------------------------------------------------------------------//
@@ -500,16 +625,16 @@ type APNObjectMms struct {
 
 // Clone creates a deep copy of APNObjectMms.
 // Returns nil if validation fails.
-func (apnPointerMms *APNObjectMms) Clone() (_apnPointerMms *APNObjectMms) {
+func (apnPointerMms *APNObjectMms) Clone() *APNObjectMms {
 	if apnPointerMms.Validate() {
-		_apnPointerMms = &APNObjectMms{
+		return &APNObjectMms{
 			Center: helperClonePointer(apnPointerMms.Center),
 			Server: helperClonePointer(apnPointerMms.Server),
 			Port:   helperClonePointer(apnPointerMms.Port),
 		}
 	}
 
-	return
+	return nil
 }
 
 // Validate checks that at least one of Center, Server, or Port is set.
@@ -519,6 +644,17 @@ func (apnPointerMms *APNObjectMms) Validate() bool {
 	}
 
 	return false
+}
+
+// IsLike returns true if the receiver matches the given APNObjectMms.
+func (apnPointerMms *APNObjectMms) IsLike(apnPointer *APNObjectMms) bool {
+	if apnPointerMms == nil || apnPointer == nil {
+		return apnPointer == nil
+	}
+
+	return helperIsLikeStringPointer(apnPointerMms.Center, apnPointer.Center) &&
+		helperIsLikeStringPointer(apnPointerMms.Server, apnPointer.Server) &&
+		helperIsLikeIntPointer(apnPointerMms.Port, apnPointer.Port)
 }
 
 //--------------------------------------------------------------------------------//
@@ -535,15 +671,15 @@ type APNObjectMvno struct {
 
 // Clone creates a deep copy of APNObjectMvno.
 // Returns nil if validation fails.
-func (apnPointerMvno *APNObjectMvno) Clone() (_apnPointerMvno *APNObjectMvno) {
+func (apnPointerMvno *APNObjectMvno) Clone() *APNObjectMvno {
 	if apnPointerMvno.Validate() {
-		_apnPointerMvno = &APNObjectMvno{
+		return &APNObjectMvno{
 			Type: helperClonePointer(apnPointerMvno.Type),
 			Data: helperClonePointer(apnPointerMvno.Data),
 		}
 	}
 
-	return
+	return nil
 }
 
 // Validate checks that at least one of Type or Data is set.
@@ -553,6 +689,16 @@ func (apnPointerMvno *APNObjectMvno) Validate() bool {
 	}
 
 	return false
+}
+
+// IsLike returns true if the receiver matches the given APNObjectMvno.
+func (apnPointerMvno *APNObjectMvno) IsLike(apnPointer *APNObjectMvno) bool {
+	if apnPointerMvno == nil || apnPointer == nil {
+		return apnPointer == nil
+	}
+
+	return helperIsLikeStringPointer(apnPointerMvno.Type, apnPointer.Type) &&
+		helperIsLikeStringPointer(apnPointerMvno.Data, apnPointer.Data)
 }
 
 //--------------------------------------------------------------------------------//
@@ -569,15 +715,15 @@ type APNObjectLimit struct {
 
 // Clone creates a deep copy of APNObjectLimit.
 // Returns nil if validation fails.
-func (apnPointerLimit *APNObjectLimit) Clone() (_apnPointerLimit *APNObjectLimit) {
+func (apnPointerLimit *APNObjectLimit) Clone() *APNObjectLimit {
 	if apnPointerLimit.Validate() {
-		_apnPointerLimit = &APNObjectLimit{
+		return &APNObjectLimit{
 			MaxConn:     helperClonePointer(apnPointerLimit.MaxConn),
 			MaxConnTime: helperClonePointer(apnPointerLimit.MaxConnTime),
 		}
 	}
 
-	return
+	return nil
 }
 
 // Validate checks that at least one of MaxConn or MaxConnTime is set.
@@ -587,6 +733,16 @@ func (apnPointerLimit *APNObjectLimit) Validate() bool {
 	}
 
 	return false
+}
+
+// IsLike returns true if the receiver matches the given APNObjectLimit.
+func (apnPointerLimit *APNObjectLimit) IsLike(apnPointer *APNObjectLimit) bool {
+	if apnPointerLimit == nil || apnPointer == nil {
+		return apnPointer == nil
+	}
+
+	return helperIsLikeIntPointer(apnPointerLimit.MaxConn, apnPointer.MaxConn) &&
+		helperIsLikeIntPointer(apnPointerLimit.MaxConnTime, apnPointer.MaxConnTime)
 }
 
 //--------------------------------------------------------------------------------//
@@ -612,9 +768,9 @@ type APNObjectOther struct {
 
 // Clone creates a deep copy of APNObjectOther.
 // Returns nil if validation fails.
-func (apnPointerOther *APNObjectOther) Clone() (_apnPointerOther *APNObjectOther) {
+func (apnPointerOther *APNObjectOther) Clone() *APNObjectOther {
 	if apnPointerOther.Validate() {
-		_apnPointerOther = &APNObjectOther{
+		return &APNObjectOther{
 			NetworkTypeBitmask: helperClonePointer(apnPointerOther.NetworkTypeBitmask),
 			ModemCognitive:     helperClonePointer(apnPointerOther.ModemCognitive),
 			CarrierEnabled:     helperClonePointer(apnPointerOther.CarrierEnabled),
@@ -623,7 +779,7 @@ func (apnPointerOther *APNObjectOther) Clone() (_apnPointerOther *APNObjectOther
 		}
 	}
 
-	return
+	return nil
 }
 
 // Validate checks that at least one field in APNObjectOther is set.
@@ -633,6 +789,16 @@ func (apnPointerOther *APNObjectOther) Validate() bool {
 	}
 
 	return false
+}
+
+// IsLike returns true if the receiver matches the given APNObjectOther.
+// Currently only compares NetworkTypeBitmask.
+func (apnPointerOther *APNObjectOther) IsLike(apnPointer *APNObjectOther) bool {
+	if apnPointerOther == nil || apnPointer == nil {
+		return apnPointer == nil
+	}
+
+	return helperIsLikeMaskPointer(apnPointerOther.NetworkTypeBitmask, apnPointer.NetworkTypeBitmask)
 }
 
 //--------------------------------------------------------------------------------//
