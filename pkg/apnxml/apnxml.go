@@ -5,60 +5,31 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 //--------------------------------------------------------------------------------//
-// Helper Method
+// APNXML Import Method
 //--------------------------------------------------------------------------------//
 
-func isValidXML(data []byte) bool {
-	return xml.Unmarshal(data, new(interface{})) == nil
-}
-
-func isValidJSON(data []byte) bool {
-	return json.Unmarshal(data, new(interface{})) == nil
-}
-
-//--------------------------------------------------------------------------------//
-// APNXML Method
-//--------------------------------------------------------------------------------//
-
-func ParseApnArrayFromXmlByte(apnArrayXmlByte []byte) (apnArray APNArray, err error) {
-	err = xml.Unmarshal(apnArrayXmlByte, &apnArray)
+func ImportFromJSONByte(jsonByte []byte) (apnArray APNArray, err error) {
+	err = json.Unmarshal(jsonByte, &apnArray)
 	return
 }
 
-func ParseApnArrayFromJsonByte(apnArrayJsonByte []byte) (apnArray APNArray, err error) {
-	err = json.Unmarshal(apnArrayJsonByte, &apnArray)
+func ImportFromXMLByte(xmlByte []byte) (apnArray APNArray, err error) {
+	err = xml.Unmarshal(xmlByte, &apnArray)
 	return
 }
 
-func ParseApnArrayFromByte(apnArrayB64Byte []byte) (apnArray APNArray, err error) {
+func ImportFromFile(filename string) (apnArray APNArray, err error) {
 	var (
 		apnArrayByte []byte
-	)
-
-	apnArrayByte, err = base64.StdEncoding.DecodeString(string(apnArrayB64Byte))
-	if err != nil {
-		err = nil
-		apnArrayByte = apnArrayB64Byte
-	}
-
-	if isValidXML(apnArrayByte) {
-		return ParseApnArrayFromXmlByte(apnArrayByte)
-	}
-
-	if isValidJSON(apnArrayByte) {
-		return ParseApnArrayFromJsonByte(apnArrayByte)
-	}
-
-	return nil, fmt.Errorf("apn byte array must be xml or json")
-}
-
-func ParseApnArrayFromFile(filename string) (apnArray APNArray, err error) {
-	var (
-		apnArrayByte []byte
+		filenameExt  = strings.ToLower(filepath.Ext(filename))
 	)
 
 	apnArrayByte, err = os.ReadFile(filename)
@@ -66,7 +37,80 @@ func ParseApnArrayFromFile(filename string) (apnArray APNArray, err error) {
 		return
 	}
 
-	return ParseApnArrayFromByte(apnArrayByte)
+	switch filenameExt {
+	case ".json":
+		return ImportFromJSONByte(apnArrayByte)
+	case ".xml":
+		return ImportFromXMLByte(apnArrayByte)
+	default:
+		return nil, fmt.Errorf("apn array file has unsupported ext: %s", filenameExt)
+	}
+}
+
+func ImportFromUrl(urllink string, isBase64 bool) (apnArray APNArray, err error) {
+	var (
+		httpGetResponse *http.Response
+		apnArrayByte    []byte
+	)
+
+	httpGetResponse, err = http.Get(urllink)
+	if err != nil {
+		return nil, fmt.Errorf("apn array url has fetch error: %v", err)
+	}
+	defer httpGetResponse.Body.Close()
+
+	if httpGetResponse.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("apn array url has status error: %d", httpGetResponse.StatusCode)
+	}
+
+	apnArrayByte, err = io.ReadAll(httpGetResponse.Body)
+	if err != nil {
+		return nil, fmt.Errorf("apn array url has body error: %v", err)
+	}
+
+	if isBase64 {
+		apnArrayByte, err = base64.StdEncoding.DecodeString(string(apnArrayByte))
+		if err != nil {
+			return nil, fmt.Errorf("apn array url has base64 error: %v", err)
+		}
+	}
+
+	return ImportFromXMLByte(apnArrayByte)
+}
+
+//--------------------------------------------------------------------------------//
+// APNXML Export Method
+//--------------------------------------------------------------------------------//
+
+func ExportToJSONByte(apnArray APNArray) (jsonByte []byte, err error) {
+	return json.MarshalIndent(apnArray, "", "\t")
+}
+
+func ExportToXMLByte(apnArray APNArray) (xmlByte []byte, err error) {
+	return xml.MarshalIndent(apnArray, "", "\t")
+}
+
+func ExportToFile(apnArray APNArray, filename string) error {
+	var (
+		apnArrayByte []byte
+		filenameExt  = strings.ToLower(filepath.Ext(filename))
+		err          error
+	)
+
+	switch filenameExt {
+	case ".json":
+		apnArrayByte, err = ExportToJSONByte(apnArray)
+	case ".xml":
+		apnArrayByte, err = ExportToXMLByte(apnArray)
+	default:
+		err = fmt.Errorf("apn array file has unsupported ext: %s", filenameExt)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filename, apnArrayByte, 0644)
 }
 
 //--------------------------------------------------------------------------------//

@@ -1,28 +1,12 @@
 package apnxml
 
-import "strings"
+import (
+	"strings"
+)
 
 //--------------------------------------------------------------------------------//
-// Helper Method
+// Helper IsLike
 //--------------------------------------------------------------------------------//
-
-func helperClonePointer[Type any](pointer *Type) *Type {
-	if pointer == nil {
-		return nil
-	}
-
-	object := *pointer
-	return &object
-}
-
-func helperApnPointerClone[Type APNObjectInterface[Type]](apnPointer Type) Type {
-	if apnPointer.Validate() {
-		return apnPointer.Clone()
-	}
-
-	var apnPointerIsNil Type
-	return apnPointerIsNil
-}
 
 func helperIsLikeString(left string, right string) bool {
 	left = strings.TrimSpace(strings.ToLower(left))
@@ -53,6 +37,19 @@ func helperIsLikeMaskPointer[Type ~int](left *Type, right *Type) bool {
 	}
 
 	return *left&*right == *right
+}
+
+//--------------------------------------------------------------------------------//
+// Helper Clone
+//--------------------------------------------------------------------------------//
+
+func helperPointerClone[Type any](pointer *Type) *Type {
+	if pointer == nil {
+		return nil
+	}
+
+	object := *pointer
+	return &object
 }
 
 //--------------------------------------------------------------------------------//

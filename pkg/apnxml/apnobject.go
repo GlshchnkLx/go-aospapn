@@ -83,15 +83,15 @@ type helperAPNObject struct {
 // Clone creates a deep copy of the APNObject, cloning all its sub-objects.
 func (apnPointerCore *APNObject) Clone() *APNObject {
 	apnObject := APNObject{
-		APNObjectRoot: helperApnPointerClone(apnPointerCore.APNObjectRoot),
-		Base:          helperApnPointerClone(apnPointerCore.Base),
-		Auth:          helperApnPointerClone(apnPointerCore.Auth),
-		Bearer:        helperApnPointerClone(apnPointerCore.Bearer),
-		Proxy:         helperApnPointerClone(apnPointerCore.Proxy),
-		Mms:           helperApnPointerClone(apnPointerCore.Mms),
-		Mvno:          helperApnPointerClone(apnPointerCore.Mvno),
-		Limit:         helperApnPointerClone(apnPointerCore.Limit),
-		Other:         helperApnPointerClone(apnPointerCore.Other),
+		APNObjectRoot: apnPointerCore.APNObjectRoot.Clone(),
+		Base:          apnPointerCore.Base.Clone(),
+		Auth:          apnPointerCore.Auth.Clone(),
+		Bearer:        apnPointerCore.Bearer.Clone(),
+		Proxy:         apnPointerCore.Proxy.Clone(),
+		Mms:           apnPointerCore.Mms.Clone(),
+		Mvno:          apnPointerCore.Mvno.Clone(),
+		Limit:         apnPointerCore.Limit.Clone(),
+		Other:         apnPointerCore.Other.Clone(),
 	}
 
 	if apnPointerCore.GroupMapByType != nil {
@@ -173,19 +173,19 @@ func (apnObjectCore APNObject) String() string {
 // MarshalXML implements custom XML marshaling for APNObject.
 // It uses helperAPNObject to ensure optional fields are omitted when nil.
 func (apnObjectCore APNObject) MarshalXML(xmlEncoder *xml.Encoder, xmlStart xml.StartElement) error {
-	_apnObject := helperAPNObject{
-		APNObjectRoot:   helperApnPointerClone(apnObjectCore.APNObjectRoot),
-		APNObjectBase:   helperApnPointerClone(apnObjectCore.Base),
-		APNObjectAuth:   helperApnPointerClone(apnObjectCore.Auth),
-		APNObjectBearer: helperApnPointerClone(apnObjectCore.Bearer),
-		APNObjectProxy:  helperApnPointerClone(apnObjectCore.Proxy),
-		APNObjectMms:    helperApnPointerClone(apnObjectCore.Mms),
-		APNObjectMvno:   helperApnPointerClone(apnObjectCore.Mvno),
-		APNObjectLimit:  helperApnPointerClone(apnObjectCore.Limit),
-		APNObjectOther:  helperApnPointerClone(apnObjectCore.Other),
+	apnObjectHelper := helperAPNObject{
+		APNObjectRoot:   apnObjectCore.APNObjectRoot.Clone(),
+		APNObjectBase:   apnObjectCore.Base.Clone(),
+		APNObjectAuth:   apnObjectCore.Auth.Clone(),
+		APNObjectBearer: apnObjectCore.Bearer.Clone(),
+		APNObjectProxy:  apnObjectCore.Proxy.Clone(),
+		APNObjectMms:    apnObjectCore.Mms.Clone(),
+		APNObjectMvno:   apnObjectCore.Mvno.Clone(),
+		APNObjectLimit:  apnObjectCore.Limit.Clone(),
+		APNObjectOther:  apnObjectCore.Other.Clone(),
 	}
 
-	err := xmlEncoder.EncodeElement(_apnObject, xmlStart)
+	err := xmlEncoder.EncodeElement(apnObjectHelper, xmlStart)
 	if err != nil {
 		return err
 	}
@@ -196,22 +196,22 @@ func (apnObjectCore APNObject) MarshalXML(xmlEncoder *xml.Encoder, xmlStart xml.
 // UnmarshalXML implements custom XML unmarshaling for APNObject.
 // It decodes into a helperAPNObject and then assigns cloned pointers to the receiver.
 func (apnPointerCore *APNObject) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.StartElement) error {
-	var _apnObject helperAPNObject
+	var apnObjectHelper helperAPNObject
 
-	err := xmlDecoder.DecodeElement(&_apnObject, &xmlStart)
+	err := xmlDecoder.DecodeElement(&apnObjectHelper, &xmlStart)
 	if err != nil {
 		return err
 	}
 
-	apnPointerCore.APNObjectRoot = helperApnPointerClone(_apnObject.APNObjectRoot)
-	apnPointerCore.Base = helperApnPointerClone(_apnObject.APNObjectBase)
-	apnPointerCore.Auth = helperApnPointerClone(_apnObject.APNObjectAuth)
-	apnPointerCore.Bearer = helperApnPointerClone(_apnObject.APNObjectBearer)
-	apnPointerCore.Proxy = helperApnPointerClone(_apnObject.APNObjectProxy)
-	apnPointerCore.Mms = helperApnPointerClone(_apnObject.APNObjectMms)
-	apnPointerCore.Mvno = helperApnPointerClone(_apnObject.APNObjectMvno)
-	apnPointerCore.Limit = helperApnPointerClone(_apnObject.APNObjectLimit)
-	apnPointerCore.Other = helperApnPointerClone(_apnObject.APNObjectOther)
+	apnPointerCore.APNObjectRoot = apnObjectHelper.APNObjectRoot.Clone()
+	apnPointerCore.Base = apnObjectHelper.APNObjectBase.Clone()
+	apnPointerCore.Auth = apnObjectHelper.APNObjectAuth.Clone()
+	apnPointerCore.Bearer = apnObjectHelper.APNObjectBearer.Clone()
+	apnPointerCore.Proxy = apnObjectHelper.APNObjectProxy.Clone()
+	apnPointerCore.Mms = apnObjectHelper.APNObjectMms.Clone()
+	apnPointerCore.Mvno = apnObjectHelper.APNObjectMvno.Clone()
+	apnPointerCore.Limit = apnObjectHelper.APNObjectLimit.Clone()
+	apnPointerCore.Other = apnObjectHelper.APNObjectOther.Clone()
 
 	return nil
 }
@@ -237,9 +237,9 @@ func (apnPointerRoot *APNObjectRoot) Clone() *APNObjectRoot {
 	if apnPointerRoot.Validate() {
 		return &APNObjectRoot{
 			Carrier:   apnPointerRoot.Carrier,
-			CarrierID: helperClonePointer(apnPointerRoot.CarrierID),
-			Mcc:       helperClonePointer(apnPointerRoot.Mcc),
-			Mnc:       helperClonePointer(apnPointerRoot.Mnc),
+			CarrierID: helperPointerClone(apnPointerRoot.CarrierID),
+			Mcc:       helperPointerClone(apnPointerRoot.Mcc),
+			Mnc:       helperPointerClone(apnPointerRoot.Mnc),
 		}
 	}
 
@@ -417,9 +417,9 @@ type APNObjectBase struct {
 func (apnPointerBase *APNObjectBase) Clone() *APNObjectBase {
 	if apnPointerBase.Validate() {
 		return &APNObjectBase{
-			Apn:       helperClonePointer(apnPointerBase.Apn),
-			Type:      helperClonePointer(apnPointerBase.Type),
-			ProfileID: helperClonePointer(apnPointerBase.ProfileID),
+			Apn:       helperPointerClone(apnPointerBase.Apn),
+			Type:      helperPointerClone(apnPointerBase.Type),
+			ProfileID: helperPointerClone(apnPointerBase.ProfileID),
 		}
 	}
 
@@ -472,9 +472,9 @@ type APNObjectAuth struct {
 func (apnPointerAuth *APNObjectAuth) Clone() *APNObjectAuth {
 	if apnPointerAuth.Validate() {
 		return &APNObjectAuth{
-			Type:     helperClonePointer(apnPointerAuth.Type),
-			Username: helperClonePointer(apnPointerAuth.Username),
-			Password: helperClonePointer(apnPointerAuth.Password),
+			Type:     helperPointerClone(apnPointerAuth.Type),
+			Username: helperPointerClone(apnPointerAuth.Username),
+			Password: helperPointerClone(apnPointerAuth.Password),
 		}
 	}
 
@@ -535,10 +535,10 @@ type APNObjectBearer struct {
 func (apnPointerBearer *APNObjectBearer) Clone() *APNObjectBearer {
 	if apnPointerBearer.Validate() {
 		return &APNObjectBearer{
-			Type:        helperClonePointer(apnPointerBearer.Type),
-			TypeRoaming: helperClonePointer(apnPointerBearer.TypeRoaming),
-			Mtu:         helperClonePointer(apnPointerBearer.Mtu),
-			Server:      helperClonePointer(apnPointerBearer.Server),
+			Type:        helperPointerClone(apnPointerBearer.Type),
+			TypeRoaming: helperPointerClone(apnPointerBearer.TypeRoaming),
+			Mtu:         helperPointerClone(apnPointerBearer.Mtu),
+			Server:      helperPointerClone(apnPointerBearer.Server),
 		}
 	}
 
@@ -583,8 +583,8 @@ type APNObjectProxy struct {
 func (apnPointerProxy *APNObjectProxy) Clone() *APNObjectProxy {
 	if apnPointerProxy.Validate() {
 		return &APNObjectProxy{
-			Server: helperClonePointer(apnPointerProxy.Server),
-			Port:   helperClonePointer(apnPointerProxy.Port),
+			Server: helperPointerClone(apnPointerProxy.Server),
+			Port:   helperPointerClone(apnPointerProxy.Port),
 		}
 	}
 
@@ -628,9 +628,9 @@ type APNObjectMms struct {
 func (apnPointerMms *APNObjectMms) Clone() *APNObjectMms {
 	if apnPointerMms.Validate() {
 		return &APNObjectMms{
-			Center: helperClonePointer(apnPointerMms.Center),
-			Server: helperClonePointer(apnPointerMms.Server),
-			Port:   helperClonePointer(apnPointerMms.Port),
+			Center: helperPointerClone(apnPointerMms.Center),
+			Server: helperPointerClone(apnPointerMms.Server),
+			Port:   helperPointerClone(apnPointerMms.Port),
 		}
 	}
 
@@ -674,8 +674,8 @@ type APNObjectMvno struct {
 func (apnPointerMvno *APNObjectMvno) Clone() *APNObjectMvno {
 	if apnPointerMvno.Validate() {
 		return &APNObjectMvno{
-			Type: helperClonePointer(apnPointerMvno.Type),
-			Data: helperClonePointer(apnPointerMvno.Data),
+			Type: helperPointerClone(apnPointerMvno.Type),
+			Data: helperPointerClone(apnPointerMvno.Data),
 		}
 	}
 
@@ -718,8 +718,8 @@ type APNObjectLimit struct {
 func (apnPointerLimit *APNObjectLimit) Clone() *APNObjectLimit {
 	if apnPointerLimit.Validate() {
 		return &APNObjectLimit{
-			MaxConn:     helperClonePointer(apnPointerLimit.MaxConn),
-			MaxConnTime: helperClonePointer(apnPointerLimit.MaxConnTime),
+			MaxConn:     helperPointerClone(apnPointerLimit.MaxConn),
+			MaxConnTime: helperPointerClone(apnPointerLimit.MaxConnTime),
 		}
 	}
 
@@ -771,11 +771,11 @@ type APNObjectOther struct {
 func (apnPointerOther *APNObjectOther) Clone() *APNObjectOther {
 	if apnPointerOther.Validate() {
 		return &APNObjectOther{
-			NetworkTypeBitmask: helperClonePointer(apnPointerOther.NetworkTypeBitmask),
-			ModemCognitive:     helperClonePointer(apnPointerOther.ModemCognitive),
-			CarrierEnabled:     helperClonePointer(apnPointerOther.CarrierEnabled),
-			UserVisible:        helperClonePointer(apnPointerOther.UserVisible),
-			UserEditable:       helperClonePointer(apnPointerOther.UserEditable),
+			NetworkTypeBitmask: helperPointerClone(apnPointerOther.NetworkTypeBitmask),
+			ModemCognitive:     helperPointerClone(apnPointerOther.ModemCognitive),
+			CarrierEnabled:     helperPointerClone(apnPointerOther.CarrierEnabled),
+			UserVisible:        helperPointerClone(apnPointerOther.UserVisible),
+			UserEditable:       helperPointerClone(apnPointerOther.UserEditable),
 		}
 	}
 

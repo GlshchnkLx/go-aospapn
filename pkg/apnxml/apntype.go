@@ -291,7 +291,7 @@ func NewAPNTypeCoreProxy[Type ~int](noneIndex Type, maxIndex Type, mapByIndex ma
 }
 
 // MarshalTextValue serializes value to text: array (comma-separated) or single string.
-func (coreProxyStorage *APNTypeCoreProxy[Type]) MarshalTextValue(apnTypeValue Type) ([]byte, error) {
+func (coreProxyStorage *APNTypeCoreProxy[Type]) MarshalTextValue(apnTypeValue Type) (textByte []byte, err error) {
 	if coreProxyStorage.option.jsonIsArray {
 		return []byte(strings.Join(coreProxyStorage.JSONMap.GetStringArray(apnTypeValue), ",")), nil
 	}
@@ -309,7 +309,7 @@ func (coreProxyStorage *APNTypeCoreProxy[Type]) UnmarshalTextValue(apnTypeValue 
 }
 
 // MarshalJSONValue serializes value to JSON: array of strings or single string.
-func (coreProxyStorage *APNTypeCoreProxy[Type]) MarshalJSONValue(apnTypeValue Type) ([]byte, error) {
+func (coreProxyStorage *APNTypeCoreProxy[Type]) MarshalJSONValue(apnTypeValue Type) (jsonByte []byte, err error) {
 	if coreProxyStorage.option.jsonIsArray {
 		return json.Marshal(coreProxyStorage.JSONMap.GetStringArray(apnTypeValue))
 	}
@@ -319,27 +319,33 @@ func (coreProxyStorage *APNTypeCoreProxy[Type]) MarshalJSONValue(apnTypeValue Ty
 
 // UnmarshalJSONValue deserializes JSON: array of strings or single string.
 func (coreProxyStorage *APNTypeCoreProxy[Type]) UnmarshalJSONValue(apnTypeValue *Type, jsonByte []byte) error {
-	var apnTypeJSON interface{}
 	if coreProxyStorage.option.jsonIsArray {
-		apnTypeJSON = []string{}
+		if jsonByte[0] == '[' {
+			var apnTypeStringArray []string
+
+			err := json.Unmarshal(jsonByte, &apnTypeStringArray)
+			if err != nil {
+				return err
+			}
+
+			return coreProxyStorage.JSONMap.SetStringArray(apnTypeValue, apnTypeStringArray)
+		} else {
+			return coreProxyStorage.UnmarshalTextValue(apnTypeValue, jsonByte[1:len(jsonByte)-1])
+		}
 	} else {
-		apnTypeJSON = ""
-	}
+		var apnTypeString string
 
-	err := json.Unmarshal(jsonByte, &apnTypeJSON)
-	if err != nil {
-		return err
-	}
+		err := json.Unmarshal(jsonByte, &apnTypeString)
+		if err != nil {
+			return err
+		}
 
-	if coreProxyStorage.option.jsonIsArray {
-		return coreProxyStorage.JSONMap.SetStringArray(apnTypeValue, apnTypeJSON.([]string))
+		return coreProxyStorage.JSONMap.SetString(apnTypeValue, apnTypeString)
 	}
-
-	return coreProxyStorage.JSONMap.SetString(apnTypeValue, apnTypeJSON.(string))
 }
 
 // MarshalXMLValue serializes value to XML attribute per options: array, string, or number.
-func (coreProxyStorage *APNTypeCoreProxy[Type]) MarshalXMLValue(apnTypeValue Type, xmlAttrName xml.Name) (xml.Attr, error) {
+func (coreProxyStorage *APNTypeCoreProxy[Type]) MarshalXMLValue(apnTypeValue Type, xmlAttrName xml.Name) (xmlAttr xml.Attr, err error) {
 	var apnTypeString string
 
 	if coreProxyStorage.option.xmlIsArray {
@@ -449,27 +455,28 @@ func (baseTypeValue APNTypeBaseType) String() string {
 }
 
 // MarshalText serializes to comma-separated string (e.g., "default,mms").
-func (baseTypeValue APNTypeBaseType) MarshalText() ([]byte, error) {
+func (baseTypeValue APNTypeBaseType) MarshalText() (textByte []byte, err error) {
 	return apnTypeBaseTypeStorage.MarshalTextValue(baseTypeValue)
 }
 
 // UnmarshalText deserializes from comma-separated string (e.g., "default,mms").
 func (baseTypeValue *APNTypeBaseType) UnmarshalText(textByte []byte) error {
+	fmt.Println(1, textByte, string(textByte))
 	return apnTypeBaseTypeStorage.UnmarshalTextValue(baseTypeValue, textByte)
 }
 
 // MarshalJSON serializes to JSON array (e.g., ["default", "mms"]).
-func (baseTypeValue APNTypeBaseType) MarshalJSON() ([]byte, error) {
+func (baseTypeValue APNTypeBaseType) MarshalJSON() (jsonByte []byte, err error) {
 	return apnTypeBaseTypeStorage.MarshalJSONValue(baseTypeValue)
 }
 
 // UnmarshalJSON deserializes from JSON array (e.g., ["default", "mms"]).
-func (baseTypeValue *APNTypeBaseType) UnmarshalJSON(jsonData []byte) error {
-	return apnTypeBaseTypeStorage.UnmarshalJSONValue(baseTypeValue, jsonData)
+func (baseTypeValue *APNTypeBaseType) UnmarshalJSON(jsonByte []byte) error {
+	return apnTypeBaseTypeStorage.UnmarshalJSONValue(baseTypeValue, jsonByte)
 }
 
 // MarshalXMLAttr serializes to XML attribute per proxy options.
-func (baseTypeValue APNTypeBaseType) MarshalXMLAttr(xmlAttrName xml.Name) (xml.Attr, error) {
+func (baseTypeValue APNTypeBaseType) MarshalXMLAttr(xmlAttrName xml.Name) (xmlAttr xml.Attr, err error) {
 	return apnTypeBaseTypeStorage.MarshalXMLValue(baseTypeValue, xmlAttrName)
 }
 
@@ -509,7 +516,7 @@ func (authTypeValue APNTypeAuthType) String() string {
 }
 
 // MarshalText serializes to comma-separated string (e.g., "pap,chap").
-func (authTypeValue APNTypeAuthType) MarshalText() ([]byte, error) {
+func (authTypeValue APNTypeAuthType) MarshalText() (textByte []byte, err error) {
 	return apnTypeAuthTypeStorage.MarshalTextValue(authTypeValue)
 }
 
@@ -519,17 +526,17 @@ func (authTypeValue *APNTypeAuthType) UnmarshalText(textByte []byte) error {
 }
 
 // MarshalJSON serializes to JSON array (e.g., ["pap", "chap"]).
-func (authTypeValue APNTypeAuthType) MarshalJSON() ([]byte, error) {
+func (authTypeValue APNTypeAuthType) MarshalJSON() (jsonByte []byte, err error) {
 	return apnTypeAuthTypeStorage.MarshalJSONValue(authTypeValue)
 }
 
 // UnmarshalJSON deserializes from JSON array (e.g., ["pap", "chap"]).
-func (authTypeValue *APNTypeAuthType) UnmarshalJSON(jsonData []byte) error {
-	return apnTypeAuthTypeStorage.UnmarshalJSONValue(authTypeValue, jsonData)
+func (authTypeValue *APNTypeAuthType) UnmarshalJSON(jsonByte []byte) error {
+	return apnTypeAuthTypeStorage.UnmarshalJSONValue(authTypeValue, jsonByte)
 }
 
 // MarshalXMLAttr serializes to XML attribute per proxy options.
-func (authTypeValue APNTypeAuthType) MarshalXMLAttr(xmlAttrName xml.Name) (xml.Attr, error) {
+func (authTypeValue APNTypeAuthType) MarshalXMLAttr(xmlAttrName xml.Name) (xmlAttr xml.Attr, err error) {
 	return apnTypeAuthTypeStorage.MarshalXMLValue(authTypeValue, xmlAttrName)
 }
 
@@ -605,7 +612,7 @@ func (networkTypeValue APNTypeNetworkType) String() string {
 }
 
 // MarshalText serializes to comma-separated string (e.g., "lte,nr").
-func (networkTypeValue APNTypeNetworkType) MarshalText() ([]byte, error) {
+func (networkTypeValue APNTypeNetworkType) MarshalText() (textByte []byte, err error) {
 	return apnTypeNetworkTypeStorage.MarshalTextValue(networkTypeValue)
 }
 
@@ -615,17 +622,17 @@ func (networkTypeValue *APNTypeNetworkType) UnmarshalText(textByte []byte) error
 }
 
 // MarshalJSON serializes to JSON array (e.g., ["lte", "nr"]).
-func (networkTypeValue APNTypeNetworkType) MarshalJSON() ([]byte, error) {
+func (networkTypeValue APNTypeNetworkType) MarshalJSON() (jsonByte []byte, err error) {
 	return apnTypeNetworkTypeStorage.MarshalJSONValue(networkTypeValue)
 }
 
 // UnmarshalJSON deserializes from JSON array (e.g., ["lte", "nr"]).
-func (networkTypeValue *APNTypeNetworkType) UnmarshalJSON(jsonData []byte) error {
-	return apnTypeNetworkTypeStorage.UnmarshalJSONValue(networkTypeValue, jsonData)
+func (networkTypeValue *APNTypeNetworkType) UnmarshalJSON(jsonByte []byte) error {
+	return apnTypeNetworkTypeStorage.UnmarshalJSONValue(networkTypeValue, jsonByte)
 }
 
 // MarshalXMLAttr serializes to XML attribute per proxy options.
-func (networkTypeValue APNTypeNetworkType) MarshalXMLAttr(xmlAttrName xml.Name) (xml.Attr, error) {
+func (networkTypeValue APNTypeNetworkType) MarshalXMLAttr(xmlAttrName xml.Name) (xmlAttr xml.Attr, err error) {
 	return apnTypeNetworkTypeStorage.MarshalXMLValue(networkTypeValue, xmlAttrName)
 }
 
@@ -675,7 +682,7 @@ func (bearerProtocolValue APNTypeBearerProtocol) String() string {
 }
 
 // MarshalText serializes to string (e.g., "ipv4").
-func (bearerProtocolValue APNTypeBearerProtocol) MarshalText() ([]byte, error) {
+func (bearerProtocolValue APNTypeBearerProtocol) MarshalText() (textByte []byte, err error) {
 	return apnTypeBearerProtocolStorage.MarshalTextValue(bearerProtocolValue)
 }
 
@@ -685,17 +692,17 @@ func (bearerProtocolValue *APNTypeBearerProtocol) UnmarshalText(textByte []byte)
 }
 
 // MarshalJSON serializes to JSON string (e.g., "ipv4").
-func (bearerProtocolValue APNTypeBearerProtocol) MarshalJSON() ([]byte, error) {
+func (bearerProtocolValue APNTypeBearerProtocol) MarshalJSON() (jsonByte []byte, err error) {
 	return apnTypeBearerProtocolStorage.MarshalJSONValue(bearerProtocolValue)
 }
 
 // UnmarshalJSON deserializes from JSON string (e.g., "ipv4").
-func (bearerProtocolValue *APNTypeBearerProtocol) UnmarshalJSON(jsonData []byte) error {
-	return apnTypeBearerProtocolStorage.UnmarshalJSONValue(bearerProtocolValue, jsonData)
+func (bearerProtocolValue *APNTypeBearerProtocol) UnmarshalJSON(jsonByte []byte) error {
+	return apnTypeBearerProtocolStorage.UnmarshalJSONValue(bearerProtocolValue, jsonByte)
 }
 
 // MarshalXMLAttr serializes to XML attribute per proxy options.
-func (bearerProtocolValue APNTypeBearerProtocol) MarshalXMLAttr(xmlAttrName xml.Name) (xml.Attr, error) {
+func (bearerProtocolValue APNTypeBearerProtocol) MarshalXMLAttr(xmlAttrName xml.Name) (xmlAttr xml.Attr, err error) {
 	return apnTypeBearerProtocolStorage.MarshalXMLValue(bearerProtocolValue, xmlAttrName)
 }
 
