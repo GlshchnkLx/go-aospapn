@@ -1,6 +1,7 @@
 package apnxml
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
@@ -12,105 +13,158 @@ import (
 	"strings"
 )
 
-//--------------------------------------------------------------------------------//
-// APNXML Import Method
-//--------------------------------------------------------------------------------//
+type Format string
 
-func ImportFromJSONByte(jsonByte []byte) (apnArray APNArray, err error) {
-	err = json.Unmarshal(jsonByte, &apnArray)
-	return
-}
+const (
+	FormatJSON Format = "json"
+	FormatXML  Format = "xml"
+)
 
-func ImportFromXMLByte(xmlByte []byte) (apnArray APNArray, err error) {
-	err = xml.Unmarshal(xmlByte, &apnArray)
-	return
-}
-
-func ImportFromFile(filename string) (apnArray APNArray, err error) {
-	var (
-		apnArrayByte []byte
-		filenameExt  = strings.ToLower(filepath.Ext(filename))
-	)
-
-	apnArrayByte, err = os.ReadFile(filename)
-	if err != nil {
-		return
-	}
-
-	switch filenameExt {
+func formatFromFilename(filename string) (Format, error) {
+	switch strings.ToLower(filepath.Ext(filename)) {
 	case ".json":
-		return ImportFromJSONByte(apnArrayByte)
+		return FormatJSON, nil
 	case ".xml":
-		return ImportFromXMLByte(apnArrayByte)
+		return FormatXML, nil
 	default:
-		return nil, fmt.Errorf("apn array file has unsupported ext: %s", filenameExt)
+		return "", fmt.Errorf("unsupported apn file extension: %s", filepath.Ext(filename))
 	}
 }
 
-func ImportFromUrl(urllink string, isBase64 bool) (apnArray APNArray, err error) {
-	var (
-		httpGetResponse *http.Response
-		apnArrayByte    []byte
-	)
+func decode(data []byte, format Format) (Array, error) {
+	var records Array
 
-	httpGetResponse, err = http.Get(urllink)
-	if err != nil {
-		return nil, fmt.Errorf("apn array url has fetch error: %v", err)
+	switch format {
+	case FormatJSON:
+		if err := json.Unmarshal(data, &records); err != nil {
+			return nil, err
+		}
+	case FormatXML:
+		if err := xml.Unmarshal(data, &records); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unsupported apn format: %s", format)
 	}
-	defer httpGetResponse.Body.Close()
 
-	if httpGetResponse.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("apn array url has status error: %d", httpGetResponse.StatusCode)
+	return records, nil
+}
+
+func encode(records Array, format Format) ([]byte, error) {
+	switch format {
+	case FormatJSON:
+		return json.MarshalIndent(records, "", "\t")
+	case FormatXML:
+		return xml.MarshalIndent(records, "", "\t")
+	default:
+		return nil, fmt.Errorf("unsupported apn format: %s", format)
+	}
+}
+
+func ImportFromJSONByte(jsonByte []byte) (apnArray Array, err error) {
+	return decode(jsonByte, FormatJSON)
+}
+
+func ImportFromXMLByte(xmlByte []byte) (apnArray Array, err error) {
+	return decode(xmlByte, FormatXML)
+}
+
+func ImportFromReader(reader io.Reader, format Format) (Array, error) {
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("read apn data: %w", err)
 	}
 
-	apnArrayByte, err = io.ReadAll(httpGetResponse.Body)
+	return decode(data, format)
+}
+
+func ImportFromFile(filename string) (apnArray Array, err error) {
+	data, err := os.ReadFile(filename)
 	if err != nil {
-		return nil, fmt.Errorf("apn array url has body error: %v", err)
+		return nil, err
+	}
+
+	format, err := formatFromFilename(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	return decode(data, format)
+}
+
+func ImportFromURL(ctx context.Context, httpClient *http.Client, url string, format Format, isBase64 bool) (apnArray Array, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create apn request: %w", err)
+	}
+
+	response, err := httpClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("fetch apn url: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch apn url: unexpected status %d", response.StatusCode)
+	}
+
+	data, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read apn response body: %w", err)
 	}
 
 	if isBase64 {
-		apnArrayByte, err = base64.StdEncoding.DecodeString(string(apnArrayByte))
+		data, err = base64.StdEncoding.DecodeString(string(data))
 		if err != nil {
-			return nil, fmt.Errorf("apn array url has base64 error: %v", err)
+			return nil, fmt.Errorf("decode apn base64 payload: %w", err)
 		}
 	}
 
-	return ImportFromXMLByte(apnArrayByte)
+	return decode(data, format)
 }
 
-//--------------------------------------------------------------------------------//
-// APNXML Export Method
-//--------------------------------------------------------------------------------//
-
-func ExportToJSONByte(apnArray APNArray) (jsonByte []byte, err error) {
-	return json.MarshalIndent(apnArray, "", "\t")
+func ImportFromSimpleURL(url string, isBase64 bool) (apnArray Array, err error) {
+	return ImportFromURL(context.Background(), http.DefaultClient, url, FormatXML, isBase64)
 }
 
-func ExportToXMLByte(apnArray APNArray) (xmlByte []byte, err error) {
-	return xml.MarshalIndent(apnArray, "", "\t")
+func ExportToJSONByte(apnArray Array) (jsonByte []byte, err error) {
+	return encode(apnArray, FormatJSON)
 }
 
-func ExportToFile(apnArray APNArray, filename string) error {
-	var (
-		apnArrayByte []byte
-		filenameExt  = strings.ToLower(filepath.Ext(filename))
-		err          error
-	)
+func ExportToXMLByte(apnArray Array) (xmlByte []byte, err error) {
+	return encode(apnArray, FormatXML)
+}
 
-	switch filenameExt {
-	case ".json":
-		apnArrayByte, err = ExportToJSONByte(apnArray)
-	case ".xml":
-		apnArrayByte, err = ExportToXMLByte(apnArray)
-	default:
-		err = fmt.Errorf("apn array file has unsupported ext: %s", filenameExt)
-	}
-
+func ExportToWriter(apnArray Array, writer io.Writer, format Format) error {
+	data, err := encode(apnArray, format)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(filename, apnArrayByte, 0644)
+	if _, err := writer.Write(data); err != nil {
+		return fmt.Errorf("write apn data: %w", err)
+	}
+
+	return nil
 }
 
-//--------------------------------------------------------------------------------//
+func ExportToFile(apnArray Array, filename string) error {
+	format, err := formatFromFilename(filename)
+	if err != nil {
+		return err
+	}
+
+	data, err := encode(apnArray, format)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filename, data, 0644)
+}

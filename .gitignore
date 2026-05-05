@@ -1,40 +1,39 @@
-# Compiled file
-*.out
-*.app
+# Build folders, binary output
+build/
+bin/
+dist/
+
+# Compiled files
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
 
-# Private folder & file
-*backup*
+# Supporting files
+*.txt
+*.json
+*.xml
+
+# Private files
 *private*
+
+# Runtime and local files
 *.db
 *.log
+*.lock
 *.tmp
-*._go
 
-# MacOS Trash
-.DS_Store
-._*
-
-# Windows Trash
+# Windows specific
+$Recycle.Bin/
+desktop.ini
 Thumbs.db
+thumbs.db
 ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
 
-# Linux Trash
+# Unix specific
 *~
 
-# IDE Trash
-.idea/
-.vscode/
-*.swp
-*.swo
-.*
-
-# Golang Trash
-/.cache/
-/.go/
+# MacOS specific
+.DS_Store
+._*

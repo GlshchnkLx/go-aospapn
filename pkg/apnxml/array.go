@@ -1,15 +1,3 @@
-// # APN Array
-//
-// File defines the APNArray type, which represents a collection of APNObject
-// entries. It supports marshaling to and unmarshaling from XML with a root element
-// named "apns" and version attribute "8". It also provides a JSON string representation
-// via the String method.
-//
-// The XML structure is expected to contain one or more "apn" elements, each representing
-// a carrier's APN configuration. During unmarshaling, entries are grouped by ID and
-// sorted by MCC, MNC, and ID. During marshaling, if an APNObject contains grouped
-// entries by type, each is encoded as a separate "apn" element while preserving the
-// root carrier information.
 package apnxml
 
 import (
@@ -21,18 +9,39 @@ import (
 )
 
 //--------------------------------------------------------------------------------//
-// APNArray
+// Array
 //--------------------------------------------------------------------------------//
 
-// APNArray is a slice of APNObject, representing a collection of APN configurations.
-// It implements custom XML marshaling and unmarshaling to handle the hierarchical
-// structure of APN entries, including grouping by type. It also provides a JSON
-// string representation via the String method.
-type APNArray []APNObject
+type Array []Object
 
-// String returns a pretty-printed JSON representation of the APNArray.
-// If marshaling fails, it returns an error string.
-func (apnArray APNArray) String() string {
+func (apnArray Array) Clone() Array {
+	if apnArray == nil {
+		return nil
+	}
+
+	apnArrayClone := make(Array, 0, len(apnArray))
+	for index := range apnArray {
+		apnPointer := apnArray[index].Clone()
+		if apnPointer == nil {
+			continue
+		}
+
+		apnArrayClone = append(apnArrayClone, *apnPointer)
+	}
+
+	return apnArrayClone
+}
+
+func (apnArray Array) CountRecords() int {
+	total := 0
+	for index := range apnArray {
+		total += apnArray[index].CountRecords()
+	}
+
+	return total
+}
+
+func (apnArray Array) String() string {
 	jsonData, err := json.MarshalIndent(apnArray, "", "\t")
 	if err != nil {
 		return fmt.Sprintf("error: %v", err)
@@ -41,11 +50,7 @@ func (apnArray APNArray) String() string {
 	return string(jsonData)
 }
 
-// MarshalXML encodes the APNArray into XML format with a root element <apns version="8">.
-// Each APNObject is encoded as an <apn> element. If the APNObject has grouped entries
-// (GroupMapByType), each group is encoded as a separate <apn> element, sorted by type.
-// The encoder is set to indent with tabs for readability.
-func (apnArray APNArray) MarshalXML(xmlEncoder *xml.Encoder, _ xml.StartElement) error {
+func (apnArray Array) MarshalXML(xmlEncoder *xml.Encoder, _ xml.StartElement) error {
 	var (
 		xmlStart xml.StartElement
 		err      error
@@ -73,7 +78,10 @@ func (apnArray APNArray) MarshalXML(xmlEncoder *xml.Encoder, _ xml.StartElement)
 	}
 
 	for _, apnObjectRoot := range apnArray {
-		apnPointerRoot := apnObjectRoot.Clone()
+		apnPointerRoot := apnObjectRoot.NormalizedClone()
+		if apnPointerRoot == nil {
+			continue
+		}
 
 		if apnPointerRoot.GroupMapByType == nil {
 			err = xmlEncoder.EncodeElement(apnPointerRoot, xml.StartElement{
@@ -83,8 +91,8 @@ func (apnArray APNArray) MarshalXML(xmlEncoder *xml.Encoder, _ xml.StartElement)
 			})
 		} else {
 			var (
-				apnPointerBaseTypeArray []APNTypeBaseType
-				apnPointer              *APNObject
+				apnPointerBaseTypeArray []ObjectBaseType
+				apnPointer              *Object
 			)
 
 			for apnPointerBaseTypeString := range apnPointerRoot.GroupMapByType {
@@ -96,8 +104,11 @@ func (apnArray APNArray) MarshalXML(xmlEncoder *xml.Encoder, _ xml.StartElement)
 			})
 
 			for _, apnPointerBaseTypeString := range apnPointerBaseTypeArray {
-				apnPointer = apnPointerRoot.GroupMapByType[apnPointerBaseTypeString]
-				apnPointer.APNObjectRoot = apnPointerRoot.APNObjectRoot
+				apnPointer = apnPointerRoot.GroupMapByType[apnPointerBaseTypeString].NormalizedClone()
+				if apnPointer == nil {
+					continue
+				}
+				apnPointer.ObjectRoot = apnPointerRoot.ObjectRoot.Clone()
 
 				err = xmlEncoder.EncodeElement(apnPointer, xml.StartElement{
 					Name: xml.Name{
@@ -120,17 +131,10 @@ func (apnArray APNArray) MarshalXML(xmlEncoder *xml.Encoder, _ xml.StartElement)
 	return xmlEncoder.Flush()
 }
 
-// UnmarshalXML decodes XML data into the APNArray. It expects a root element <apns>.
-// Each <apn> element is decoded into an APNObject. Objects are grouped by their ID
-// (derived from MCC/MNC), and grouped entries are consolidated under a single APNObject
-// with GroupMapByType. After processing, the array is sorted by MCC, then MNC, then ID.
-//
-// Returns an error if the root element is not "apns", if XML decoding fails,
-// or if an APNObject fails validation.
-func (apnArray *APNArray) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.StartElement) error {
+func (apnArray *Array) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.StartElement) error {
 	var (
-		apnPointerArrayMap = map[string][]*APNObject{}
-		apnPointerRootMap  = map[string]*APNObjectRoot{}
+		apnPointerArrayMap = map[string][]*Object{}
+		apnPointerRootMap  = map[string]*ObjectRoot{}
 	)
 
 	if xmlStart.Name.Local != "apns" {
@@ -140,9 +144,9 @@ func (apnArray *APNArray) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.Sta
 	for {
 		var (
 			xmlDecoderToken xml.Token
-			apnObject       APNObject
+			apnObject       Object
 			apnObjectBaseID string
-			apnPointerRoot  *APNObjectRoot
+			apnPointerRoot  *ObjectRoot
 			err             error
 		)
 
@@ -163,13 +167,13 @@ func (apnArray *APNArray) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.Sta
 					return err
 				}
 
-				if apnObject.APNObjectRoot.Validate() {
+				if apnObject.ObjectRoot.Validate() {
 					apnObjectBaseID = apnObject.GetID()
 					apnPointerArrayMap[apnObjectBaseID] = append(apnPointerArrayMap[apnObjectBaseID], &apnObject)
 
 					apnPointerRoot = apnPointerRootMap[apnObjectBaseID]
 					if apnPointerRoot == nil || len(apnPointerRoot.Carrier) < len(apnObject.Carrier) {
-						apnPointerRootMap[apnObjectBaseID] = apnObject.APNObjectRoot
+						apnPointerRootMap[apnObjectBaseID] = apnObject.ObjectRoot
 					}
 				}
 			}
@@ -183,9 +187,9 @@ func (apnArray *APNArray) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.Sta
 	for apnObjectBaseID, apnPointerArray := range apnPointerArrayMap {
 		apnPointerRoot := apnPointerRootMap[apnObjectBaseID]
 
-		apnObject := APNObject{
-			APNObjectRoot:  apnPointerRoot.Clone(),
-			GroupMapByType: map[APNTypeBaseType]*APNObject{},
+		apnObject := Object{
+			ObjectRoot:     apnPointerRoot.Clone(),
+			GroupMapByType: map[ObjectBaseType]*Object{},
 		}
 
 		apnObject.Carrier = apnObject.GetCarrier()
@@ -195,8 +199,10 @@ func (apnArray *APNArray) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.Sta
 				continue
 			}
 
-			apnPointer.APNObjectRoot = nil
-			apnObject.GroupMapByType[*apnPointer.Base.Type] = apnPointer
+			apnPointer.ObjectRoot = nil
+			if _, ok := apnObject.GroupMapByType[*apnPointer.Base.Type]; !ok {
+				apnObject.GroupMapByType[*apnPointer.Base.Type] = apnPointer.Clone()
+			}
 		}
 
 		*apnArray = append(*apnArray, apnObject)
@@ -221,6 +227,22 @@ func (apnArray *APNArray) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.Sta
 	})
 
 	return nil
+}
+
+func (apnArray Array) FindByPLMN(mcc int, mnc int) Array {
+	var result Array
+
+	for _, apnObject := range apnArray {
+		if apnObject.Mcc == nil || apnObject.Mnc == nil {
+			continue
+		}
+
+		if *apnObject.Mcc == mcc && *apnObject.Mnc == mnc {
+			result = append(result, apnObject)
+		}
+	}
+
+	return result
 }
 
 //--------------------------------------------------------------------------------//
