@@ -14,51 +14,51 @@ import (
 //--------------------------------------------------------------------------------//
 
 type EnumMap[Type ~int] struct {
-	None    Type
-	Max     Type
-	Indexes []Type
-	Names   map[Type]string
-	Values  map[string]Type
+	NoneIndex   Type
+	MaxIndex    Type
+	IndexArray  []Type
+	MapByIndex  map[Type]string
+	MapByString map[string]Type
 }
 
 func NewEnumMap[Type ~int](noneIndex Type, maxIndex Type, mapByIndex map[Type]string) *EnumMap[Type] {
 	coreMapStorage := &EnumMap[Type]{
-		None:    noneIndex,
-		Max:     maxIndex,
-		Indexes: []Type{},
-		Names:   map[Type]string{},
-		Values:  map[string]Type{},
+		NoneIndex:   noneIndex,
+		MaxIndex:    maxIndex,
+		IndexArray:  []Type{},
+		MapByIndex:  map[Type]string{},
+		MapByString: map[string]Type{},
 	}
 
 	for apnTypeIndex, apnTypeString := range mapByIndex {
 		apnTypeString = strings.TrimSpace(apnTypeString)
 
 		if noneIndex < apnTypeIndex && apnTypeIndex < maxIndex {
-			coreMapStorage.Indexes = append(coreMapStorage.Indexes, apnTypeIndex)
+			coreMapStorage.IndexArray = append(coreMapStorage.IndexArray, apnTypeIndex)
 		}
 
-		coreMapStorage.Names[apnTypeIndex] = apnTypeString
-		coreMapStorage.Values[apnTypeString] = apnTypeIndex
-		coreMapStorage.Values[strings.ToLower(apnTypeString)] = apnTypeIndex
+		coreMapStorage.MapByIndex[apnTypeIndex] = apnTypeString
+		coreMapStorage.MapByString[apnTypeString] = apnTypeIndex
+		coreMapStorage.MapByString[strings.ToLower(apnTypeString)] = apnTypeIndex
 	}
 
-	sort.Slice(coreMapStorage.Indexes, func(i, j int) bool {
-		return coreMapStorage.Indexes[i] < coreMapStorage.Indexes[j]
+	sort.Slice(coreMapStorage.IndexArray, func(i, j int) bool {
+		return coreMapStorage.IndexArray[i] < coreMapStorage.IndexArray[j]
 	})
 
 	return coreMapStorage
 }
 
-func (coreMapStorage *EnumMap[Type]) Index(apnTypeValue Type) Type {
-	if _, ok := coreMapStorage.Names[apnTypeValue]; ok {
+func (coreMapStorage *EnumMap[Type]) GetIndex(apnTypeValue Type) Type {
+	if _, ok := coreMapStorage.MapByIndex[apnTypeValue]; ok {
 		return apnTypeValue
 	}
 
-	return coreMapStorage.None
+	return coreMapStorage.NoneIndex
 }
 
 func (coreMapStorage *EnumMap[Type]) SetIndex(apnTypeValue *Type, apnTypeIndex Type) error {
-	if _, ok := coreMapStorage.Names[apnTypeIndex]; !ok {
+	if _, ok := coreMapStorage.MapByIndex[apnTypeIndex]; !ok {
 		return fmt.Errorf("apn type has incorrect index: %d", apnTypeIndex)
 	}
 
@@ -67,25 +67,25 @@ func (coreMapStorage *EnumMap[Type]) SetIndex(apnTypeValue *Type, apnTypeIndex T
 	return nil
 }
 
-func (coreMapStorage *EnumMap[Type]) IndexesOf(apnTypeValue Type) []Type {
-	apnTypeIndexes := []Type{}
-	for _, apnTypeIndex := range coreMapStorage.Indexes {
+func (coreMapStorage *EnumMap[Type]) GetIndexArray(apnTypeValue Type) []Type {
+	apnTypeIndexArray := []Type{}
+	for _, apnTypeIndex := range coreMapStorage.IndexArray {
 		if apnTypeValue&apnTypeIndex == apnTypeIndex {
-			apnTypeIndexes = append(apnTypeIndexes, apnTypeIndex)
+			apnTypeIndexArray = append(apnTypeIndexArray, apnTypeIndex)
 		}
 	}
 
-	if len(apnTypeIndexes) == 0 {
-		apnTypeIndexes = append(apnTypeIndexes, coreMapStorage.None)
+	if len(apnTypeIndexArray) == 0 {
+		apnTypeIndexArray = append(apnTypeIndexArray, coreMapStorage.NoneIndex)
 	}
 
-	return apnTypeIndexes
+	return apnTypeIndexArray
 }
 
-func (coreMapStorage *EnumMap[Type]) SetIndexes(apnTypeValue *Type, apnTypeIndexes []Type) error {
-	*apnTypeValue = coreMapStorage.None
-	for _, apnTypeIndex := range apnTypeIndexes {
-		if _, ok := coreMapStorage.Names[apnTypeIndex]; !ok {
+func (coreMapStorage *EnumMap[Type]) SetIndexArray(apnTypeValue *Type, apnTypeIndexArray []Type) error {
+	*apnTypeValue = coreMapStorage.NoneIndex
+	for _, apnTypeIndex := range apnTypeIndexArray {
+		if _, ok := coreMapStorage.MapByIndex[apnTypeIndex]; !ok {
 			return fmt.Errorf("apn type has incorrect index: %d", apnTypeIndex)
 		}
 
@@ -95,13 +95,13 @@ func (coreMapStorage *EnumMap[Type]) SetIndexes(apnTypeValue *Type, apnTypeIndex
 	return nil
 }
 
-func (coreMapStorage *EnumMap[Type]) Name(apnTypeValue Type) string {
-	return coreMapStorage.Names[coreMapStorage.Index(apnTypeValue)]
+func (coreMapStorage *EnumMap[Type]) GetString(apnTypeValue Type) string {
+	return coreMapStorage.MapByIndex[coreMapStorage.GetIndex(apnTypeValue)]
 }
 
-func (coreMapStorage *EnumMap[Type]) SetName(apnTypeValue *Type, apnTypeString string) error {
+func (coreMapStorage *EnumMap[Type]) SetString(apnTypeValue *Type, apnTypeString string) error {
 	apnTypeString = strings.ToLower(strings.TrimSpace(apnTypeString))
-	apnTypeIndex, ok := coreMapStorage.Values[apnTypeString]
+	apnTypeIndex, ok := coreMapStorage.MapByString[apnTypeString]
 	if !ok {
 		return fmt.Errorf("apn type has incorrect string: %q", apnTypeString)
 	}
@@ -109,40 +109,40 @@ func (coreMapStorage *EnumMap[Type]) SetName(apnTypeValue *Type, apnTypeString s
 	return coreMapStorage.SetIndex(apnTypeValue, apnTypeIndex)
 }
 
-func (coreMapStorage *EnumMap[Type]) NamesOf(apnTypeValue Type) []string {
+func (coreMapStorage *EnumMap[Type]) GetStringArray(apnTypeValue Type) []string {
 	var apnTypeStringArray []string
-	for _, apnTypeIndex := range coreMapStorage.IndexesOf(apnTypeValue) {
-		apnTypeStringArray = append(apnTypeStringArray, coreMapStorage.Names[apnTypeIndex])
+	for _, apnTypeIndex := range coreMapStorage.GetIndexArray(apnTypeValue) {
+		apnTypeStringArray = append(apnTypeStringArray, coreMapStorage.MapByIndex[apnTypeIndex])
 	}
 
 	return apnTypeStringArray
 }
 
-func (coreMapStorage *EnumMap[Type]) SetNames(apnTypeValue *Type, apnTypeStringArray []string) error {
-	var apnTypeIndexes []Type
+func (coreMapStorage *EnumMap[Type]) SetStringArray(apnTypeValue *Type, apnTypeStringArray []string) error {
+	var apnTypeIndexArray []Type
 	for _, apnTypeString := range apnTypeStringArray {
 		apnTypeString = strings.ToLower(strings.TrimSpace(apnTypeString))
-		apnTypeIndex, ok := coreMapStorage.Values[apnTypeString]
+		apnTypeIndex, ok := coreMapStorage.MapByString[apnTypeString]
 		if !ok {
 			return fmt.Errorf("apn type has incorrect string: %q", apnTypeString)
 		}
 
-		apnTypeIndexes = append(apnTypeIndexes, apnTypeIndex)
+		apnTypeIndexArray = append(apnTypeIndexArray, apnTypeIndex)
 	}
 
-	return coreMapStorage.SetIndexes(apnTypeValue, apnTypeIndexes)
+	return coreMapStorage.SetIndexArray(apnTypeValue, apnTypeIndexArray)
 }
 
-func (coreMapStorage *EnumMap[Type]) Value(apnTypeValue Type) Type {
-	if apnTypeValue <= coreMapStorage.None || coreMapStorage.Max <= apnTypeValue {
-		return coreMapStorage.None
+func (coreMapStorage *EnumMap[Type]) GetValue(apnTypeValue Type) Type {
+	if apnTypeValue <= coreMapStorage.NoneIndex || coreMapStorage.MaxIndex <= apnTypeValue {
+		return coreMapStorage.NoneIndex
 	}
 
 	return apnTypeValue
 }
 
 func (coreMapStorage *EnumMap[Type]) SetValue(apnTypeValue *Type, apnTypeIndex Type) error {
-	if !(coreMapStorage.None <= apnTypeIndex && apnTypeIndex < coreMapStorage.Max) {
+	if !(coreMapStorage.NoneIndex <= apnTypeIndex && apnTypeIndex < coreMapStorage.MaxIndex) {
 		return fmt.Errorf("apn type has incorrect value: %d", apnTypeIndex)
 	}
 
@@ -220,7 +220,7 @@ func newEnumCodec[Type ~int](noneIndex Type, maxIndex Type, mapByIndex map[Type]
 	xmlNames := map[Type]string{}
 
 	if options.xmlIsString {
-		for apnTypeIndex, apnTypeString := range coreProxyStorage.json.Names {
+		for apnTypeIndex, apnTypeString := range coreProxyStorage.json.MapByIndex {
 			if options.xmlStringIsUpper {
 				apnTypeString = strings.ToUpper(apnTypeString)
 			}
@@ -230,15 +230,15 @@ func newEnumCodec[Type ~int](noneIndex Type, maxIndex Type, mapByIndex map[Type]
 	}
 
 	if options.xmlIsNumber {
-		for apnTypeOrder, apnTypeIndex := range coreProxyStorage.json.Indexes {
+		for apnTypeOrder, apnTypeIndex := range coreProxyStorage.json.IndexArray {
 			apnTypeString := strconv.Itoa(apnTypeOrder + 1)
 			xmlNames[apnTypeIndex] = apnTypeString
 		}
 	}
 
 	coreProxyStorage.xml = NewEnumMap(
-		coreProxyStorage.json.None,
-		coreProxyStorage.json.Max,
+		coreProxyStorage.json.NoneIndex,
+		coreProxyStorage.json.MaxIndex,
 		xmlNames,
 	)
 
@@ -247,26 +247,26 @@ func newEnumCodec[Type ~int](noneIndex Type, maxIndex Type, mapByIndex map[Type]
 
 func (coreProxyStorage *enumCodec[Type]) marshalText(apnTypeValue Type) (textByte []byte, err error) {
 	if coreProxyStorage.options.jsonIsArray {
-		return []byte(strings.Join(coreProxyStorage.json.NamesOf(apnTypeValue), ",")), nil
+		return []byte(strings.Join(coreProxyStorage.json.GetStringArray(apnTypeValue), ",")), nil
 	}
 
-	return []byte(coreProxyStorage.json.Name(apnTypeValue)), nil
+	return []byte(coreProxyStorage.json.GetString(apnTypeValue)), nil
 }
 
 func (coreProxyStorage *enumCodec[Type]) unmarshalText(apnTypeValue *Type, textByte []byte) error {
 	if coreProxyStorage.options.jsonIsArray {
-		return coreProxyStorage.json.SetNames(apnTypeValue, strings.Split(string(textByte), ","))
+		return coreProxyStorage.json.SetStringArray(apnTypeValue, strings.Split(string(textByte), ","))
 	}
 
-	return coreProxyStorage.json.SetName(apnTypeValue, string(textByte))
+	return coreProxyStorage.json.SetString(apnTypeValue, string(textByte))
 }
 
 func (coreProxyStorage *enumCodec[Type]) marshalJSON(apnTypeValue Type) (jsonByte []byte, err error) {
 	if coreProxyStorage.options.jsonIsArray {
-		return json.Marshal(coreProxyStorage.json.NamesOf(apnTypeValue))
+		return json.Marshal(coreProxyStorage.json.GetStringArray(apnTypeValue))
 	}
 
-	return json.Marshal(coreProxyStorage.json.Name(apnTypeValue))
+	return json.Marshal(coreProxyStorage.json.GetString(apnTypeValue))
 }
 
 func (coreProxyStorage *enumCodec[Type]) unmarshalJSON(apnTypeValue *Type, jsonByte []byte) error {
@@ -283,7 +283,7 @@ func (coreProxyStorage *enumCodec[Type]) unmarshalJSON(apnTypeValue *Type, jsonB
 				return err
 			}
 
-			return coreProxyStorage.json.SetNames(apnTypeValue, apnTypeStringArray)
+			return coreProxyStorage.json.SetStringArray(apnTypeValue, apnTypeStringArray)
 		} else {
 			if len(jsonByte) < 2 {
 				return fmt.Errorf("apn type has invalid json value: %q", string(jsonByte))
@@ -298,7 +298,7 @@ func (coreProxyStorage *enumCodec[Type]) unmarshalJSON(apnTypeValue *Type, jsonB
 			return err
 		}
 
-		return coreProxyStorage.json.SetName(apnTypeValue, apnTypeString)
+		return coreProxyStorage.json.SetString(apnTypeValue, apnTypeString)
 	}
 }
 
@@ -306,14 +306,14 @@ func (coreProxyStorage *enumCodec[Type]) marshalXMLAttr(apnTypeValue Type, xmlAt
 	var apnTypeString string
 
 	if coreProxyStorage.options.xmlIsArray {
-		apnTypeString = strings.Join(coreProxyStorage.xml.NamesOf(apnTypeValue), coreProxyStorage.options.xmlArrayHasSeparator)
+		apnTypeString = strings.Join(coreProxyStorage.xml.GetStringArray(apnTypeValue), coreProxyStorage.options.xmlArrayHasSeparator)
 	} else if coreProxyStorage.options.xmlIsString {
-		apnTypeString = coreProxyStorage.xml.Name(apnTypeValue)
+		apnTypeString = coreProxyStorage.xml.GetString(apnTypeValue)
 	} else if coreProxyStorage.options.xmlIsNumber {
 		if coreProxyStorage.options.xmlNumberIsOrder {
-			apnTypeString = coreProxyStorage.xml.Name(apnTypeValue)
+			apnTypeString = coreProxyStorage.xml.GetString(apnTypeValue)
 		} else if coreProxyStorage.options.xmlNumberIsIndex {
-			apnTypeString = strconv.Itoa(int(coreProxyStorage.xml.Value(apnTypeValue)))
+			apnTypeString = strconv.Itoa(int(coreProxyStorage.xml.GetValue(apnTypeValue)))
 		}
 	}
 
@@ -326,19 +326,19 @@ func (coreProxyStorage *enumCodec[Type]) marshalXMLAttr(apnTypeValue Type, xmlAt
 func (coreProxyStorage *enumCodec[Type]) unmarshalXMLAttr(apnTypeValue *Type, xmlAttr xml.Attr) error {
 	if coreProxyStorage.options.xmlIsArray {
 		apnTypeStringArray := strings.Split(xmlAttr.Value, coreProxyStorage.options.xmlArrayHasSeparator)
-		return coreProxyStorage.xml.SetNames(apnTypeValue, apnTypeStringArray)
+		return coreProxyStorage.xml.SetStringArray(apnTypeValue, apnTypeStringArray)
 	} else if coreProxyStorage.options.xmlIsString {
-		return coreProxyStorage.xml.SetName(apnTypeValue, xmlAttr.Value)
+		return coreProxyStorage.xml.SetString(apnTypeValue, xmlAttr.Value)
 	} else if coreProxyStorage.options.xmlIsNumber {
 		if coreProxyStorage.options.xmlNumberIsOrder {
-			return coreProxyStorage.xml.SetName(apnTypeValue, xmlAttr.Value)
+			return coreProxyStorage.xml.SetString(apnTypeValue, xmlAttr.Value)
 		} else if coreProxyStorage.options.xmlNumberIsIndex {
 			apnTypeIndex, err := strconv.Atoi(xmlAttr.Value)
 			if err != nil {
 				return fmt.Errorf("apn type has invalid number: %v", err)
 			}
 
-			if apnTypeIndex < int(coreProxyStorage.xml.None) || int(coreProxyStorage.xml.Max) <= apnTypeIndex {
+			if apnTypeIndex < int(coreProxyStorage.xml.NoneIndex) || int(coreProxyStorage.xml.MaxIndex) <= apnTypeIndex {
 				return fmt.Errorf("apn type has out of range number: %d", apnTypeIndex)
 			}
 
@@ -347,3 +347,5 @@ func (coreProxyStorage *enumCodec[Type]) unmarshalXMLAttr(apnTypeValue *Type, xm
 	}
 	return nil
 }
+
+//--------------------------------------------------------------------------------//

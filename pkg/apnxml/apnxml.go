@@ -13,6 +13,10 @@ import (
 	"strings"
 )
 
+//--------------------------------------------------------------------------------//
+// Format
+//--------------------------------------------------------------------------------//
+
 type Format string
 
 const (
@@ -31,6 +35,10 @@ func formatFromFilename(filename string) (Format, error) {
 	}
 }
 
+//--------------------------------------------------------------------------------//
+// Decode
+//--------------------------------------------------------------------------------//
+
 func decode(data []byte, format Format) (Array, error) {
 	var records Array
 
@@ -48,17 +56,6 @@ func decode(data []byte, format Format) (Array, error) {
 	}
 
 	return records, nil
-}
-
-func encode(records Array, format Format) ([]byte, error) {
-	switch format {
-	case FormatJSON:
-		return json.MarshalIndent(records, "", "\t")
-	case FormatXML:
-		return xml.MarshalIndent(records, "", "\t")
-	default:
-		return nil, fmt.Errorf("unsupported apn format: %s", format)
-	}
 }
 
 func ImportFromJSONByte(jsonByte []byte) (apnArray Array, err error) {
@@ -134,6 +131,21 @@ func ImportFromSimpleURL(url string, isBase64 bool) (apnArray Array, err error) 
 	return ImportFromURL(context.Background(), http.DefaultClient, url, FormatXML, isBase64)
 }
 
+//--------------------------------------------------------------------------------//
+// Encode
+//--------------------------------------------------------------------------------//
+
+func encode(records Array, format Format) ([]byte, error) {
+	switch format {
+	case FormatJSON:
+		return json.MarshalIndent(records, "", "\t")
+	case FormatXML:
+		return xml.MarshalIndent(records, "", "\t")
+	default:
+		return nil, fmt.Errorf("unsupported apn format: %s", format)
+	}
+}
+
 func ExportToJSONByte(apnArray Array) (jsonByte []byte, err error) {
 	return encode(apnArray, FormatJSON)
 }
@@ -168,3 +180,5 @@ func ExportToFile(apnArray Array, filename string) error {
 
 	return os.WriteFile(filename, data, 0644)
 }
+
+//--------------------------------------------------------------------------------//

@@ -50,21 +50,6 @@ func TestImportFromXMLGroupsEntriesByPLMNAndKeepsFirstTypeEntry(t *testing.T) {
 	}
 }
 
-func TestArrayFindByPLMN(t *testing.T) {
-	apns := Array{
-		{ObjectRoot: &ObjectRoot{Carrier: "B", Mcc: intPtr(251), Mnc: intPtr(2)}},
-		{ObjectRoot: &ObjectRoot{Carrier: "A", Mcc: intPtr(250), Mnc: intPtr(1)}},
-	}
-
-	matches := apns.FindByPLMN(250, 1)
-	if len(matches) != 1 {
-		t.Fatalf("expected one match, got %d", len(matches))
-	}
-	if matches[0].Carrier != "A" {
-		t.Fatalf("expected carrier A, got %q", matches[0].Carrier)
-	}
-}
-
 func TestArrayCloneAndCountRecords(t *testing.T) {
 	apns := Array{
 		{
@@ -105,7 +90,7 @@ func TestObjectRecordsAreSortedByType(t *testing.T) {
 	}
 }
 
-func TestGroupedIsLikeChecksRootBeforeGroupEntries(t *testing.T) {
+func TestGroupedMatchChecksRootBeforeGroupEntries(t *testing.T) {
 	apns, err := ImportFromXMLByte([]byte(`<apns version="8">
 		<apn carrier="Carrier A" mcc="250" mnc="01" apn="internet" type="default" />
 	</apns>`))
@@ -114,7 +99,7 @@ func TestGroupedIsLikeChecksRootBeforeGroupEntries(t *testing.T) {
 	}
 
 	query := &Object{ObjectRoot: &ObjectRoot{Mcc: intPtr(251), Mnc: intPtr(1)}}
-	if apns[0].IsLike(query) {
+	if apns[0].Match(query) {
 		t.Fatal("grouped APN must not match a query with different PLMN")
 	}
 }
@@ -148,6 +133,59 @@ func TestValidateDoesNotNormalizeBase(t *testing.T) {
 	base.Normalize()
 	if base.Type == nil || *base.Type != ObjectBaseTypeDefault {
 		t.Fatal("Normalize must assign default APN type when APN is set")
+	}
+}
+
+func TestObjectFieldCloneDoesNotAliasPointers(t *testing.T) {
+	baseType := ObjectBaseTypeDefault
+	base := &ObjectBase{
+		Apn:  stringPtr("internet"),
+		Type: &baseType,
+	}
+
+	clone := base.Clone()
+	*clone.Apn = "changed"
+	*clone.Type = ObjectBaseTypeMMS
+
+	if *base.Apn != "internet" {
+		t.Fatal("Clone must not alias string pointers")
+	}
+	if *base.Type != ObjectBaseTypeDefault {
+		t.Fatal("Clone must not alias enum pointers")
+	}
+}
+
+func TestObjectUpdateModes(t *testing.T) {
+	target := &ObjectBase{
+		Apn: stringPtr("internet"),
+	}
+	source := &ObjectBase{
+		Apn:       stringPtr("mms"),
+		ProfileID: intPtr(7),
+	}
+
+	if !target.Merge(source) {
+		t.Fatal("Merge returned false")
+	}
+	if *target.Apn != "internet" {
+		t.Fatal("Merge must not overwrite existing fields")
+	}
+	if target.ProfileID == nil || *target.ProfileID != 7 {
+		t.Fatal("Merge must fill empty fields")
+	}
+
+	if !target.Patch(source) {
+		t.Fatal("Patch returned false")
+	}
+	if *target.Apn != "mms" {
+		t.Fatal("Patch must overwrite fields present in source")
+	}
+
+	if !target.Apply(&ObjectBase{}) {
+		t.Fatal("Apply returned false")
+	}
+	if target.Apn != nil || target.ProfileID != nil {
+		t.Fatal("Apply must copy zero values")
 	}
 }
 

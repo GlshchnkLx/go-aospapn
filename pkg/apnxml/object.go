@@ -4,18 +4,146 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 )
 
 //--------------------------------------------------------------------------------//
-// Object Interface
+// Object Update
 //--------------------------------------------------------------------------------//
 
-type ObjectInterface[Type any] interface {
-	Clone() Type
-	Validate() bool
-	IsLike(Type) bool
+type ObjectUpdateMode int
+
+const (
+	ObjectUpdateMerge ObjectUpdateMode = iota
+	ObjectUpdatePatch
+	ObjectUpdateApply
+)
+
+func cloneObjectFields[Type any](source *Type) *Type {
+	if source == nil {
+		return nil
+	}
+
+	target := new(Type)
+	updateObjectFields(target, source, ObjectUpdateApply)
+	return target
+}
+
+func hasObjectFields[Type any](source *Type) bool {
+	if source == nil {
+		return false
+	}
+
+	sourceValue := reflect.ValueOf(source)
+	if sourceValue.Kind() != reflect.Ptr || sourceValue.IsNil() {
+		return false
+	}
+
+	sourceValue = sourceValue.Elem()
+	sourceType := sourceValue.Type()
+
+	for fieldIndex := 0; fieldIndex < sourceValue.NumField(); fieldIndex++ {
+		if sourceType.Field(fieldIndex).IsExported() && !sourceValue.Field(fieldIndex).IsZero() {
+			return true
+		}
+	}
+
+	return false
+}
+
+func updateObjectFields[Type any](target *Type, source *Type, mode ObjectUpdateMode) bool {
+	if target == nil || source == nil {
+		return false
+	}
+
+	targetValue := reflect.ValueOf(target)
+	sourceValue := reflect.ValueOf(source)
+	if targetValue.Kind() != reflect.Ptr || targetValue.IsNil() || sourceValue.Kind() != reflect.Ptr || sourceValue.IsNil() {
+		return false
+	}
+
+	targetValue = targetValue.Elem()
+	sourceValue = sourceValue.Elem()
+	if targetValue.Type() != sourceValue.Type() {
+		return false
+	}
+
+	targetType := targetValue.Type()
+	for fieldIndex := 0; fieldIndex < targetValue.NumField(); fieldIndex++ {
+		if !targetType.Field(fieldIndex).IsExported() {
+			continue
+		}
+
+		targetField := targetValue.Field(fieldIndex)
+		sourceField := sourceValue.Field(fieldIndex)
+		if !targetField.CanSet() {
+			continue
+		}
+
+		switch mode {
+		case ObjectUpdateMerge:
+			if targetField.IsZero() && !sourceField.IsZero() {
+				setClonedField(targetField, sourceField)
+			}
+		case ObjectUpdatePatch:
+			if !sourceField.IsZero() {
+				setClonedField(targetField, sourceField)
+			}
+		case ObjectUpdateApply:
+			setClonedField(targetField, sourceField)
+		}
+	}
+
+	return true
+}
+
+func updateObjectPointer[Type any](target **Type, source *Type, mode ObjectUpdateMode) {
+	if target == nil {
+		return
+	}
+
+	switch mode {
+	case ObjectUpdateMerge:
+		if *target == nil {
+			*target = cloneObjectFields(source)
+		} else {
+			updateObjectFields(*target, source, mode)
+		}
+	case ObjectUpdatePatch:
+		if source == nil {
+			return
+		}
+		if *target == nil {
+			*target = cloneObjectFields(source)
+		} else {
+			updateObjectFields(*target, source, mode)
+		}
+	case ObjectUpdateApply:
+		*target = cloneObjectFields(source)
+	}
+}
+
+func setClonedField(target reflect.Value, source reflect.Value) {
+	if !source.IsValid() {
+		target.Set(reflect.Zero(target.Type()))
+		return
+	}
+
+	if source.Kind() != reflect.Ptr {
+		target.Set(source)
+		return
+	}
+
+	if source.IsNil() {
+		target.Set(reflect.Zero(target.Type()))
+		return
+	}
+
+	targetPointer := reflect.New(source.Type().Elem())
+	targetPointer.Elem().Set(source.Elem())
+	target.Set(targetPointer)
 }
 
 //--------------------------------------------------------------------------------//
@@ -23,8 +151,6 @@ type ObjectInterface[Type any] interface {
 //--------------------------------------------------------------------------------//
 
 type Object struct {
-	ObjectInterface[Object] `json:"-" xml:"-"`
-
 	*ObjectRoot
 	Base   *ObjectBase   `json:"base,omitempty"`
 	Auth   *ObjectAuth   `json:"auth,omitempty"`
@@ -153,11 +279,66 @@ func (apnPointerCore *Object) Normalize() {
 
 func (apnPointerCore *Object) NormalizedClone() *Object {
 	apnPointerClone := apnPointerCore.Clone()
+	if apnPointerClone == nil {
+		return nil
+	}
+
 	apnPointerClone.Normalize()
 	return apnPointerClone
 }
 
-func (apnPointerCore *Object) GetIsLikePointer(apnPointerQuery *Object) *Object {
+func (apnPointerCore *Object) Update(source *Object, mode ObjectUpdateMode) bool {
+	if apnPointerCore == nil || source == nil {
+		return false
+	}
+
+	updateObjectPointer(&apnPointerCore.ObjectRoot, source.ObjectRoot, mode)
+	updateObjectPointer(&apnPointerCore.Base, source.Base, mode)
+	updateObjectPointer(&apnPointerCore.Auth, source.Auth, mode)
+	updateObjectPointer(&apnPointerCore.Bearer, source.Bearer, mode)
+	updateObjectPointer(&apnPointerCore.Proxy, source.Proxy, mode)
+	updateObjectPointer(&apnPointerCore.Mms, source.Mms, mode)
+	updateObjectPointer(&apnPointerCore.Mvno, source.Mvno, mode)
+	updateObjectPointer(&apnPointerCore.Limit, source.Limit, mode)
+	updateObjectPointer(&apnPointerCore.Other, source.Other, mode)
+
+	if mode == ObjectUpdateApply {
+		apnPointerCore.GroupMapByType = nil
+		if source.GroupMapByType != nil {
+			apnPointerCore.GroupMapByType = map[ObjectBaseType]*Object{}
+			for apnType, apnPointer := range source.GroupMapByType {
+				apnPointerCore.GroupMapByType[apnType] = apnPointer.Clone()
+			}
+		}
+	} else if source.GroupMapByType != nil {
+		if apnPointerCore.GroupMapByType == nil {
+			apnPointerCore.GroupMapByType = map[ObjectBaseType]*Object{}
+		}
+		for apnType, apnPointer := range source.GroupMapByType {
+			if apnPointerCore.GroupMapByType[apnType] == nil {
+				apnPointerCore.GroupMapByType[apnType] = apnPointer.Clone()
+			} else {
+				apnPointerCore.GroupMapByType[apnType].Update(apnPointer, mode)
+			}
+		}
+	}
+
+	return true
+}
+
+func (apnPointerCore *Object) Merge(source *Object) bool {
+	return apnPointerCore.Update(source, ObjectUpdateMerge)
+}
+
+func (apnPointerCore *Object) Patch(source *Object) bool {
+	return apnPointerCore.Update(source, ObjectUpdatePatch)
+}
+
+func (apnPointerCore *Object) Apply(source *Object) bool {
+	return apnPointerCore.Update(source, ObjectUpdateApply)
+}
+
+func (apnPointerCore *Object) GetMatchPointer(apnPointerQuery *Object) *Object {
 	if apnPointerCore == nil || apnPointerQuery == nil {
 		if apnPointerQuery == nil {
 			return apnPointerCore
@@ -167,14 +348,14 @@ func (apnPointerCore *Object) GetIsLikePointer(apnPointerQuery *Object) *Object 
 	}
 
 	if apnPointerCore.ObjectRoot != nil {
-		if !apnPointerCore.ObjectRoot.IsLike(apnPointerQuery.ObjectRoot) {
+		if !apnPointerCore.ObjectRoot.Match(apnPointerQuery.ObjectRoot) {
 			return nil
 		}
 	}
 
 	if apnPointerCore.GroupMapByType != nil {
 		for _, apnPointer := range apnPointerCore.GroupMapByType {
-			apnPointer = apnPointer.GetIsLikePointer(apnPointerQuery)
+			apnPointer = apnPointer.GetMatchPointer(apnPointerQuery)
 
 			if apnPointer != nil {
 				return apnPointer
@@ -184,14 +365,14 @@ func (apnPointerCore *Object) GetIsLikePointer(apnPointerQuery *Object) *Object 
 		return nil
 	}
 
-	if apnPointerCore.Base.IsLike(apnPointerQuery.Base) &&
-		apnPointerCore.Auth.IsLike(apnPointerQuery.Auth) &&
-		apnPointerCore.Bearer.IsLike(apnPointerQuery.Bearer) &&
-		apnPointerCore.Proxy.IsLike(apnPointerQuery.Proxy) &&
-		apnPointerCore.Mms.IsLike(apnPointerQuery.Mms) &&
-		apnPointerCore.Mvno.IsLike(apnPointerQuery.Mvno) &&
-		apnPointerCore.Limit.IsLike(apnPointerQuery.Limit) &&
-		apnPointerCore.Other.IsLike(apnPointerQuery.Other) {
+	if apnPointerCore.Base.Match(apnPointerQuery.Base) &&
+		apnPointerCore.Auth.Match(apnPointerQuery.Auth) &&
+		apnPointerCore.Bearer.Match(apnPointerQuery.Bearer) &&
+		apnPointerCore.Proxy.Match(apnPointerQuery.Proxy) &&
+		apnPointerCore.Mms.Match(apnPointerQuery.Mms) &&
+		apnPointerCore.Mvno.Match(apnPointerQuery.Mvno) &&
+		apnPointerCore.Limit.Match(apnPointerQuery.Limit) &&
+		apnPointerCore.Other.Match(apnPointerQuery.Other) {
 
 		return apnPointerCore
 	}
@@ -199,8 +380,8 @@ func (apnPointerCore *Object) GetIsLikePointer(apnPointerQuery *Object) *Object 
 	return nil
 }
 
-func (apnPointerCore *Object) IsLike(apnPointerQuery *Object) bool {
-	return apnPointerCore.GetIsLikePointer(apnPointerQuery) != nil
+func (apnPointerCore *Object) Match(apnPointerQuery *Object) bool {
+	return apnPointerCore.GetMatchPointer(apnPointerQuery) != nil
 }
 
 func (apnObjectCore Object) String() string {
@@ -261,8 +442,6 @@ func (apnPointerCore *Object) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml
 //--------------------------------------------------------------------------------//
 
 type ObjectRoot struct {
-	ObjectInterface[ObjectRoot] `json:"-" xml:"-"`
-
 	Carrier   string `json:"carrierName" xml:"carrier,attr,omitempty"`
 	CarrierID *int   `json:"carrierID,omitempty"   xml:"carrier_id,attr,omitempty"`
 	Mcc       *int   `json:"mcc,omitempty"         xml:"mcc,attr,omitempty"`
@@ -270,16 +449,23 @@ type ObjectRoot struct {
 }
 
 func (apnPointerRoot *ObjectRoot) Clone() *ObjectRoot {
-	if apnPointerRoot == nil {
-		return nil
-	}
+	return cloneObjectFields(apnPointerRoot)
+}
 
-	return &ObjectRoot{
-		Carrier:   apnPointerRoot.Carrier,
-		CarrierID: clonePtr(apnPointerRoot.CarrierID),
-		Mcc:       clonePtr(apnPointerRoot.Mcc),
-		Mnc:       clonePtr(apnPointerRoot.Mnc),
-	}
+func (apnPointerRoot *ObjectRoot) Update(source *ObjectRoot, mode ObjectUpdateMode) bool {
+	return updateObjectFields(apnPointerRoot, source, mode)
+}
+
+func (apnPointerRoot *ObjectRoot) Merge(source *ObjectRoot) bool {
+	return apnPointerRoot.Update(source, ObjectUpdateMerge)
+}
+
+func (apnPointerRoot *ObjectRoot) Patch(source *ObjectRoot) bool {
+	return apnPointerRoot.Update(source, ObjectUpdatePatch)
+}
+
+func (apnPointerRoot *ObjectRoot) Apply(source *ObjectRoot) bool {
+	return apnPointerRoot.Update(source, ObjectUpdateApply)
 }
 
 func (apnPointerRoot *ObjectRoot) Validate() bool {
@@ -290,14 +476,14 @@ func (apnPointerRoot *ObjectRoot) Validate() bool {
 	return false
 }
 
-func (apnPointerRoot *ObjectRoot) IsLike(apnPointer *ObjectRoot) bool {
+func (apnPointerRoot *ObjectRoot) Match(apnPointer *ObjectRoot) bool {
 	if apnPointerRoot == nil || apnPointer == nil {
 		return apnPointer == nil
 	}
 
 	var (
-		isLikeCarrierID = true
-		isLikePlmn      = true
+		isMatchCarrierID = true
+		isMatchPlmn      = true
 	)
 
 	if apnPointer.CarrierID != nil {
@@ -305,7 +491,7 @@ func (apnPointerRoot *ObjectRoot) IsLike(apnPointer *ObjectRoot) bool {
 			return false
 		}
 
-		isLikeCarrierID = *apnPointerRoot.CarrierID == *apnPointer.CarrierID
+		isMatchCarrierID = *apnPointerRoot.CarrierID == *apnPointer.CarrierID
 	}
 
 	if apnPointer.Mcc != nil && apnPointer.Mnc != nil {
@@ -313,10 +499,10 @@ func (apnPointerRoot *ObjectRoot) IsLike(apnPointer *ObjectRoot) bool {
 			return false
 		}
 
-		isLikePlmn = (*apnPointerRoot.Mcc == *apnPointer.Mcc) && (*apnPointerRoot.Mnc == *apnPointer.Mnc)
+		isMatchPlmn = (*apnPointerRoot.Mcc == *apnPointer.Mcc) && (*apnPointerRoot.Mnc == *apnPointer.Mnc)
 	}
 
-	return matchString(apnPointerRoot.Carrier, apnPointer.Carrier) && isLikeCarrierID && isLikePlmn
+	return matchString(apnPointerRoot.Carrier, apnPointer.Carrier) && isMatchCarrierID && isMatchPlmn
 }
 
 var apnRootCarrierWordMask = map[string]bool{
@@ -427,28 +613,33 @@ func (apnRoot ObjectRoot) GetPLMN() string {
 //--------------------------------------------------------------------------------//
 
 type ObjectBase struct {
-	ObjectInterface[ObjectBase] `json:"-" xml:"-"`
-
 	Apn       *string         `json:"apn,omitempty"       xml:"apn,attr,omitempty"`
 	Type      *ObjectBaseType `json:"type,omitempty" xml:"type,attr,omitempty"`
 	ProfileID *int            `json:"profileID,omitempty" xml:"profile_id,attr,omitempty"`
 }
 
 func (apnPointerBase *ObjectBase) Clone() *ObjectBase {
-	if apnPointerBase == nil {
-		return nil
-	}
+	return cloneObjectFields(apnPointerBase)
+}
 
-	return &ObjectBase{
-		Apn:       clonePtr(apnPointerBase.Apn),
-		Type:      clonePtr(apnPointerBase.Type),
-		ProfileID: clonePtr(apnPointerBase.ProfileID),
-	}
+func (apnPointerBase *ObjectBase) Update(source *ObjectBase, mode ObjectUpdateMode) bool {
+	return updateObjectFields(apnPointerBase, source, mode)
+}
+
+func (apnPointerBase *ObjectBase) Merge(source *ObjectBase) bool {
+	return apnPointerBase.Update(source, ObjectUpdateMerge)
+}
+
+func (apnPointerBase *ObjectBase) Patch(source *ObjectBase) bool {
+	return apnPointerBase.Update(source, ObjectUpdatePatch)
+}
+
+func (apnPointerBase *ObjectBase) Apply(source *ObjectBase) bool {
+	return apnPointerBase.Update(source, ObjectUpdateApply)
 }
 
 func (apnPointerBase *ObjectBase) Validate() bool {
-	return apnPointerBase != nil &&
-		(apnPointerBase.Apn != nil || apnPointerBase.Type != nil || apnPointerBase.ProfileID != nil)
+	return hasObjectFields(apnPointerBase)
 }
 
 func (apnPointerBase *ObjectBase) Normalize() {
@@ -462,7 +653,7 @@ func (apnPointerBase *ObjectBase) Normalize() {
 	}
 }
 
-func (apnPointerBase *ObjectBase) IsLike(apnPointer *ObjectBase) bool {
+func (apnPointerBase *ObjectBase) Match(apnPointer *ObjectBase) bool {
 	if apnPointerBase == nil || apnPointer == nil {
 		return apnPointer == nil
 	}
@@ -477,23 +668,29 @@ func (apnPointerBase *ObjectBase) IsLike(apnPointer *ObjectBase) bool {
 //--------------------------------------------------------------------------------//
 
 type ObjectAuth struct {
-	ObjectInterface[ObjectAuth] `json:"-" xml:"-"`
-
 	Type     *ObjectAuthType `json:"type,omitempty" xml:"authtype,attr,omitempty"`
 	Username *string         `json:"username,omitempty" xml:"user,attr,omitempty"`
 	Password *string         `json:"password,omitempty" xml:"password,attr,omitempty"`
 }
 
 func (apnPointerAuth *ObjectAuth) Clone() *ObjectAuth {
-	if apnPointerAuth == nil {
-		return nil
-	}
+	return cloneObjectFields(apnPointerAuth)
+}
 
-	return &ObjectAuth{
-		Type:     clonePtr(apnPointerAuth.Type),
-		Username: clonePtr(apnPointerAuth.Username),
-		Password: clonePtr(apnPointerAuth.Password),
-	}
+func (apnPointerAuth *ObjectAuth) Update(source *ObjectAuth, mode ObjectUpdateMode) bool {
+	return updateObjectFields(apnPointerAuth, source, mode)
+}
+
+func (apnPointerAuth *ObjectAuth) Merge(source *ObjectAuth) bool {
+	return apnPointerAuth.Update(source, ObjectUpdateMerge)
+}
+
+func (apnPointerAuth *ObjectAuth) Patch(source *ObjectAuth) bool {
+	return apnPointerAuth.Update(source, ObjectUpdatePatch)
+}
+
+func (apnPointerAuth *ObjectAuth) Apply(source *ObjectAuth) bool {
+	return apnPointerAuth.Update(source, ObjectUpdateApply)
 }
 
 func (apnPointerAuth *ObjectAuth) Validate() bool {
@@ -521,7 +718,7 @@ func (apnPointerAuth *ObjectAuth) Normalize() {
 	}
 }
 
-func (apnPointerAuth *ObjectAuth) IsLike(apnPointer *ObjectAuth) bool {
+func (apnPointerAuth *ObjectAuth) Match(apnPointer *ObjectAuth) bool {
 	if apnPointerAuth == nil || apnPointer == nil {
 		return apnPointer == nil
 	}
@@ -536,8 +733,6 @@ func (apnPointerAuth *ObjectAuth) IsLike(apnPointer *ObjectAuth) bool {
 //--------------------------------------------------------------------------------//
 
 type ObjectBearer struct {
-	ObjectInterface[ObjectBearer] `json:"-" xml:"-"`
-
 	Type        *ObjectBearerProtocol `json:"type,omitempty"         xml:"protocol,attr,omitempty"`
 	TypeRoaming *ObjectBearerProtocol `json:"typeRoaming,omitempty"  xml:"roaming_protocol,attr,omitempty"`
 	Mtu         *int                  `json:"mtu,omitempty"          xml:"mtu,attr,omitempty"`
@@ -545,16 +740,23 @@ type ObjectBearer struct {
 }
 
 func (apnPointerBearer *ObjectBearer) Clone() *ObjectBearer {
-	if apnPointerBearer == nil {
-		return nil
-	}
+	return cloneObjectFields(apnPointerBearer)
+}
 
-	return &ObjectBearer{
-		Type:        clonePtr(apnPointerBearer.Type),
-		TypeRoaming: clonePtr(apnPointerBearer.TypeRoaming),
-		Mtu:         clonePtr(apnPointerBearer.Mtu),
-		Server:      clonePtr(apnPointerBearer.Server),
-	}
+func (apnPointerBearer *ObjectBearer) Update(source *ObjectBearer, mode ObjectUpdateMode) bool {
+	return updateObjectFields(apnPointerBearer, source, mode)
+}
+
+func (apnPointerBearer *ObjectBearer) Merge(source *ObjectBearer) bool {
+	return apnPointerBearer.Update(source, ObjectUpdateMerge)
+}
+
+func (apnPointerBearer *ObjectBearer) Patch(source *ObjectBearer) bool {
+	return apnPointerBearer.Update(source, ObjectUpdatePatch)
+}
+
+func (apnPointerBearer *ObjectBearer) Apply(source *ObjectBearer) bool {
+	return apnPointerBearer.Update(source, ObjectUpdateApply)
 }
 
 func (apnPointerBearer *ObjectBearer) Validate() bool {
@@ -567,7 +769,7 @@ func (apnPointerBearer *ObjectBearer) Validate() bool {
 
 func (apnPointerBearer *ObjectBearer) Normalize() {}
 
-func (apnPointerBearer *ObjectBearer) IsLike(apnPointer *ObjectBearer) bool {
+func (apnPointerBearer *ObjectBearer) Match(apnPointer *ObjectBearer) bool {
 	if apnPointerBearer == nil || apnPointer == nil {
 		return apnPointer == nil
 	}
@@ -583,21 +785,28 @@ func (apnPointerBearer *ObjectBearer) IsLike(apnPointer *ObjectBearer) bool {
 //--------------------------------------------------------------------------------//
 
 type ObjectProxy struct {
-	ObjectInterface[ObjectProxy] `json:"-" xml:"-"`
-
 	Server *string `json:"server,omitempty" xml:"proxy,attr,omitempty"`
 	Port   *int    `json:"port,omitempty"   xml:"port,attr,omitempty"`
 }
 
 func (apnPointerProxy *ObjectProxy) Clone() *ObjectProxy {
-	if apnPointerProxy == nil {
-		return nil
-	}
+	return cloneObjectFields(apnPointerProxy)
+}
 
-	return &ObjectProxy{
-		Server: clonePtr(apnPointerProxy.Server),
-		Port:   clonePtr(apnPointerProxy.Port),
-	}
+func (apnPointerProxy *ObjectProxy) Update(source *ObjectProxy, mode ObjectUpdateMode) bool {
+	return updateObjectFields(apnPointerProxy, source, mode)
+}
+
+func (apnPointerProxy *ObjectProxy) Merge(source *ObjectProxy) bool {
+	return apnPointerProxy.Update(source, ObjectUpdateMerge)
+}
+
+func (apnPointerProxy *ObjectProxy) Patch(source *ObjectProxy) bool {
+	return apnPointerProxy.Update(source, ObjectUpdatePatch)
+}
+
+func (apnPointerProxy *ObjectProxy) Apply(source *ObjectProxy) bool {
+	return apnPointerProxy.Update(source, ObjectUpdateApply)
 }
 
 func (apnPointerProxy *ObjectProxy) Validate() bool {
@@ -610,7 +819,7 @@ func (apnPointerProxy *ObjectProxy) Validate() bool {
 
 func (apnPointerProxy *ObjectProxy) Normalize() {}
 
-func (apnPointerProxy *ObjectProxy) IsLike(apnPointer *ObjectProxy) bool {
+func (apnPointerProxy *ObjectProxy) Match(apnPointer *ObjectProxy) bool {
 	if apnPointerProxy == nil || apnPointer == nil {
 		return apnPointer == nil
 	}
@@ -624,23 +833,29 @@ func (apnPointerProxy *ObjectProxy) IsLike(apnPointer *ObjectProxy) bool {
 //--------------------------------------------------------------------------------//
 
 type ObjectMMS struct {
-	ObjectInterface[ObjectMMS] `json:"-" xml:"-"`
-
 	Center *string `json:"center,omitempty" xml:"mmsc,attr,omitempty"`
 	Server *string `json:"server,omitempty" xml:"mmsproxy,attr,omitempty"`
 	Port   *int    `json:"port,omitempty"   xml:"mmsport,attr,omitempty"`
 }
 
 func (apnPointerMms *ObjectMMS) Clone() *ObjectMMS {
-	if apnPointerMms == nil {
-		return nil
-	}
+	return cloneObjectFields(apnPointerMms)
+}
 
-	return &ObjectMMS{
-		Center: clonePtr(apnPointerMms.Center),
-		Server: clonePtr(apnPointerMms.Server),
-		Port:   clonePtr(apnPointerMms.Port),
-	}
+func (apnPointerMms *ObjectMMS) Update(source *ObjectMMS, mode ObjectUpdateMode) bool {
+	return updateObjectFields(apnPointerMms, source, mode)
+}
+
+func (apnPointerMms *ObjectMMS) Merge(source *ObjectMMS) bool {
+	return apnPointerMms.Update(source, ObjectUpdateMerge)
+}
+
+func (apnPointerMms *ObjectMMS) Patch(source *ObjectMMS) bool {
+	return apnPointerMms.Update(source, ObjectUpdatePatch)
+}
+
+func (apnPointerMms *ObjectMMS) Apply(source *ObjectMMS) bool {
+	return apnPointerMms.Update(source, ObjectUpdateApply)
 }
 
 func (apnPointerMms *ObjectMMS) Validate() bool {
@@ -653,7 +868,7 @@ func (apnPointerMms *ObjectMMS) Validate() bool {
 
 func (apnPointerMms *ObjectMMS) Normalize() {}
 
-func (apnPointerMms *ObjectMMS) IsLike(apnPointer *ObjectMMS) bool {
+func (apnPointerMms *ObjectMMS) Match(apnPointer *ObjectMMS) bool {
 	if apnPointerMms == nil || apnPointer == nil {
 		return apnPointer == nil
 	}
@@ -668,21 +883,28 @@ func (apnPointerMms *ObjectMMS) IsLike(apnPointer *ObjectMMS) bool {
 //--------------------------------------------------------------------------------//
 
 type ObjectMVNO struct {
-	ObjectInterface[ObjectMVNO] `json:"-" xml:"-"`
-
 	Type *string `json:"type,omitempty" xml:"mvno_type,attr,omitempty"`
 	Data *string `json:"data,omitempty" xml:"mvno_match_data,attr,omitempty"`
 }
 
 func (apnPointerMvno *ObjectMVNO) Clone() *ObjectMVNO {
-	if apnPointerMvno == nil {
-		return nil
-	}
+	return cloneObjectFields(apnPointerMvno)
+}
 
-	return &ObjectMVNO{
-		Type: clonePtr(apnPointerMvno.Type),
-		Data: clonePtr(apnPointerMvno.Data),
-	}
+func (apnPointerMvno *ObjectMVNO) Update(source *ObjectMVNO, mode ObjectUpdateMode) bool {
+	return updateObjectFields(apnPointerMvno, source, mode)
+}
+
+func (apnPointerMvno *ObjectMVNO) Merge(source *ObjectMVNO) bool {
+	return apnPointerMvno.Update(source, ObjectUpdateMerge)
+}
+
+func (apnPointerMvno *ObjectMVNO) Patch(source *ObjectMVNO) bool {
+	return apnPointerMvno.Update(source, ObjectUpdatePatch)
+}
+
+func (apnPointerMvno *ObjectMVNO) Apply(source *ObjectMVNO) bool {
+	return apnPointerMvno.Update(source, ObjectUpdateApply)
 }
 
 func (apnPointerMvno *ObjectMVNO) Validate() bool {
@@ -695,7 +917,7 @@ func (apnPointerMvno *ObjectMVNO) Validate() bool {
 
 func (apnPointerMvno *ObjectMVNO) Normalize() {}
 
-func (apnPointerMvno *ObjectMVNO) IsLike(apnPointer *ObjectMVNO) bool {
+func (apnPointerMvno *ObjectMVNO) Match(apnPointer *ObjectMVNO) bool {
 	if apnPointerMvno == nil || apnPointer == nil {
 		return apnPointer == nil
 	}
@@ -709,21 +931,28 @@ func (apnPointerMvno *ObjectMVNO) IsLike(apnPointer *ObjectMVNO) bool {
 //--------------------------------------------------------------------------------//
 
 type ObjectLimit struct {
-	ObjectInterface[ObjectLimit] `json:"-" xml:"-"`
-
 	MaxConn     *int `json:"maxConn,omitempty"      xml:"max_conns,attr,omitempty"`
 	MaxConnTime *int `json:"maxConnTime,omitempty"  xml:"max_conns_time,attr,omitempty"`
 }
 
 func (apnPointerLimit *ObjectLimit) Clone() *ObjectLimit {
-	if apnPointerLimit == nil {
-		return nil
-	}
+	return cloneObjectFields(apnPointerLimit)
+}
 
-	return &ObjectLimit{
-		MaxConn:     clonePtr(apnPointerLimit.MaxConn),
-		MaxConnTime: clonePtr(apnPointerLimit.MaxConnTime),
-	}
+func (apnPointerLimit *ObjectLimit) Update(source *ObjectLimit, mode ObjectUpdateMode) bool {
+	return updateObjectFields(apnPointerLimit, source, mode)
+}
+
+func (apnPointerLimit *ObjectLimit) Merge(source *ObjectLimit) bool {
+	return apnPointerLimit.Update(source, ObjectUpdateMerge)
+}
+
+func (apnPointerLimit *ObjectLimit) Patch(source *ObjectLimit) bool {
+	return apnPointerLimit.Update(source, ObjectUpdatePatch)
+}
+
+func (apnPointerLimit *ObjectLimit) Apply(source *ObjectLimit) bool {
+	return apnPointerLimit.Update(source, ObjectUpdateApply)
 }
 
 func (apnPointerLimit *ObjectLimit) Validate() bool {
@@ -736,7 +965,7 @@ func (apnPointerLimit *ObjectLimit) Validate() bool {
 
 func (apnPointerLimit *ObjectLimit) Normalize() {}
 
-func (apnPointerLimit *ObjectLimit) IsLike(apnPointer *ObjectLimit) bool {
+func (apnPointerLimit *ObjectLimit) Match(apnPointer *ObjectLimit) bool {
 	if apnPointerLimit == nil || apnPointer == nil {
 		return apnPointer == nil
 	}
@@ -750,8 +979,6 @@ func (apnPointerLimit *ObjectLimit) IsLike(apnPointer *ObjectLimit) bool {
 //--------------------------------------------------------------------------------//
 
 type ObjectOther struct {
-	ObjectInterface[ObjectOther] `json:"-" xml:"-"`
-
 	NetworkTypeBitmask *ObjectNetworkType `json:"networkTypeBitmask,omitempty" xml:"network_type_bitmask,attr,omitempty"`
 	ModemCognitive     *bool              `json:"modemCognitive,omitempty" xml:"modem_cognitive,attr,omitempty"`
 	CarrierEnabled     *bool              `json:"IsEnabled,omitempty" xml:"carrier_enabled,attr,omitempty"`
@@ -760,17 +987,23 @@ type ObjectOther struct {
 }
 
 func (apnPointerOther *ObjectOther) Clone() *ObjectOther {
-	if apnPointerOther == nil {
-		return nil
-	}
+	return cloneObjectFields(apnPointerOther)
+}
 
-	return &ObjectOther{
-		NetworkTypeBitmask: clonePtr(apnPointerOther.NetworkTypeBitmask),
-		ModemCognitive:     clonePtr(apnPointerOther.ModemCognitive),
-		CarrierEnabled:     clonePtr(apnPointerOther.CarrierEnabled),
-		UserVisible:        clonePtr(apnPointerOther.UserVisible),
-		UserEditable:       clonePtr(apnPointerOther.UserEditable),
-	}
+func (apnPointerOther *ObjectOther) Update(source *ObjectOther, mode ObjectUpdateMode) bool {
+	return updateObjectFields(apnPointerOther, source, mode)
+}
+
+func (apnPointerOther *ObjectOther) Merge(source *ObjectOther) bool {
+	return apnPointerOther.Update(source, ObjectUpdateMerge)
+}
+
+func (apnPointerOther *ObjectOther) Patch(source *ObjectOther) bool {
+	return apnPointerOther.Update(source, ObjectUpdatePatch)
+}
+
+func (apnPointerOther *ObjectOther) Apply(source *ObjectOther) bool {
+	return apnPointerOther.Update(source, ObjectUpdateApply)
 }
 
 func (apnPointerOther *ObjectOther) Validate() bool {
@@ -783,7 +1016,7 @@ func (apnPointerOther *ObjectOther) Validate() bool {
 
 func (apnPointerOther *ObjectOther) Normalize() {}
 
-func (apnPointerOther *ObjectOther) IsLike(apnPointer *ObjectOther) bool {
+func (apnPointerOther *ObjectOther) Match(apnPointer *ObjectOther) bool {
 	if apnPointerOther == nil || apnPointer == nil {
 		return apnPointer == nil
 	}

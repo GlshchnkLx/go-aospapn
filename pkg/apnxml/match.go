@@ -4,6 +4,10 @@ import (
 	"strings"
 )
 
+//--------------------------------------------------------------------------------//
+// MatchHelper
+//--------------------------------------------------------------------------------//
+
 func matchString(left string, right string) bool {
 	left = strings.TrimSpace(strings.ToLower(left))
 	right = strings.TrimSpace(strings.ToLower(right))
@@ -35,11 +39,4 @@ func matchMaskPtr[Type ~int](left *Type, right *Type) bool {
 	return *left&*right == *right
 }
 
-func clonePtr[Type any](pointer *Type) *Type {
-	if pointer == nil {
-		return nil
-	}
-
-	object := *pointer
-	return &object
-}
+//--------------------------------------------------------------------------------//

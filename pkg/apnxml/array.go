@@ -229,20 +229,4 @@ func (apnArray *Array) UnmarshalXML(xmlDecoder *xml.Decoder, xmlStart xml.StartE
 	return nil
 }
 
-func (apnArray Array) FindByPLMN(mcc int, mnc int) Array {
-	var result Array
-
-	for _, apnObject := range apnArray {
-		if apnObject.Mcc == nil || apnObject.Mnc == nil {
-			continue
-		}
-
-		if *apnObject.Mcc == mcc && *apnObject.Mnc == mnc {
-			result = append(result, apnObject)
-		}
-	}
-
-	return result
-}
-
 //--------------------------------------------------------------------------------//

@@ -62,7 +62,7 @@ var apnTypeBaseTypeStorage = newEnumCodec(
 )
 
 func (baseTypeValue ObjectBaseType) String() string {
-	return strings.Join(apnTypeBaseTypeStorage.json.NamesOf(baseTypeValue), "|")
+	return strings.Join(apnTypeBaseTypeStorage.json.GetStringArray(baseTypeValue), "|")
 }
 
 func (baseTypeValue ObjectBaseType) MarshalText() (textByte []byte, err error) {
@@ -114,7 +114,7 @@ var apnTypeAuthTypeStorage = newEnumCodec(
 )
 
 func (authTypeValue ObjectAuthType) String() string {
-	return strings.Join(apnTypeAuthTypeStorage.json.NamesOf(authTypeValue), "|")
+	return strings.Join(apnTypeAuthTypeStorage.json.GetStringArray(authTypeValue), "|")
 }
 
 func (authTypeValue ObjectAuthType) MarshalText() (textByte []byte, err error) {
@@ -202,7 +202,7 @@ var apnTypeNetworkTypeStorage = newEnumCodec(
 )
 
 func (networkTypeValue ObjectNetworkType) String() string {
-	return strings.Join(apnTypeNetworkTypeStorage.json.NamesOf(networkTypeValue), "|")
+	return strings.Join(apnTypeNetworkTypeStorage.json.GetStringArray(networkTypeValue), "|")
 }
 
 func (networkTypeValue ObjectNetworkType) MarshalText() (textByte []byte, err error) {
@@ -264,7 +264,7 @@ var apnTypeBearerProtocolStorage = newEnumCodec(
 )
 
 func (bearerProtocolValue ObjectBearerProtocol) String() string {
-	return apnTypeBearerProtocolStorage.json.Name(bearerProtocolValue)
+	return apnTypeBearerProtocolStorage.json.GetString(bearerProtocolValue)
 }
 
 func (bearerProtocolValue ObjectBearerProtocol) MarshalText() (textByte []byte, err error) {
