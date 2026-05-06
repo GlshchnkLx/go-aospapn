@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+//--------------------------------------------------------------------------------//
+// Helper
+//--------------------------------------------------------------------------------//
+
 func intPtr(value int) *int {
 	return &value
 }
@@ -18,6 +22,10 @@ func intPtr(value int) *int {
 func stringPtr(value string) *string {
 	return &value
 }
+
+//--------------------------------------------------------------------------------//
+// Test
+//--------------------------------------------------------------------------------//
 
 func TestImportFromXMLGroupsEntriesByPLMNAndKeepsFirstTypeEntry(t *testing.T) {
 	apns, err := ImportFromXMLByte([]byte(`<apns version="8">
@@ -247,3 +255,31 @@ func TestEnumUnmarshalRejectsEmptyJSON(t *testing.T) {
 		t.Fatal("expected empty JSON to be rejected")
 	}
 }
+
+func TestParseHelpers(t *testing.T) {
+	format, err := ParseFormat("XML")
+	if err != nil || format != FormatXML {
+		t.Fatalf("unexpected format parse result: %q %v", format, err)
+	}
+	mode, err := ParseObjectUpdateMode("merge")
+	if err != nil || mode != ObjectUpdateMerge {
+		t.Fatalf("unexpected update mode parse result: %v %v", mode, err)
+	}
+	baseType, err := ParseObjectBaseType("default,mms")
+	if err != nil {
+		t.Fatalf("ParseObjectBaseType returned error: %v", err)
+	}
+	if baseType&ObjectBaseTypeDefault == 0 || baseType&ObjectBaseTypeMMS == 0 {
+		t.Fatalf("unexpected base type mask: %s", baseType.String())
+	}
+	protocol, err := ParseObjectBearerProtocol("ipv4v6")
+	if err != nil || protocol != ObjectBearerProtocolIPv4v6 {
+		t.Fatalf("unexpected protocol parse result: %s %v", protocol.String(), err)
+	}
+	network, err := ParseObjectNetworkType("lte,nr")
+	if err != nil || network&ObjectNetworkTypeLTE == 0 || network&ObjectNetworkTypeNR == 0 {
+		t.Fatalf("unexpected network parse result: %s %v", network.String(), err)
+	}
+}
+
+//--------------------------------------------------------------------------------//

@@ -48,6 +48,8 @@ Available import helpers:
 - `ImportFromFile(string) (Array, error)`
 - `ImportFromURL(context.Context, *http.Client, string, Format, bool) (Array, error)`
 - `ImportFromSimpleURL(string, bool) (Array, error)`
+- `FormatFromFilename(string) (Format, error)`
+- `ParseFormat(string) (Format, error)`
 
 `ImportFromFile` detects the format from the filename extension. Supported
 extensions are `.xml` and `.json`.
@@ -216,6 +218,23 @@ around `Object.Update`.
 For grouped objects, `Apply` replaces the entire group map. `Merge` and `Patch`
 merge source group entries into the target map by `ObjectBaseType`, creating
 missing entries and updating existing entries with the same mode.
+
+`ParseObjectUpdateMode` converts CLI-style strings to `ObjectUpdateMode`.
+Supported values are `merge`, `patch` and `apply`; an empty value maps to
+`patch`.
+
+## Parsing Enum Values
+
+The enum types expose text and JSON unmarshalling. For command-line and config
+layers, package-level parse helpers wrap the text unmarshalling API:
+
+- `ParseObjectBaseType(string) (ObjectBaseType, error)`
+- `ParseObjectAuthType(string) (ObjectAuthType, error)`
+- `ParseObjectBearerProtocol(string) (ObjectBearerProtocol, error)`
+- `ParseObjectNetworkType(string) (ObjectNetworkType, error)`
+
+These helpers accept the same token syntax as XML attributes, for example
+`default,mms,supl`, `ipv4v6` and `lte,nr`.
 
 ## Matching
 

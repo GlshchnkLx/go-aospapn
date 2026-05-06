@@ -24,7 +24,7 @@ const (
 	FormatXML  Format = "xml"
 )
 
-func formatFromFilename(filename string) (Format, error) {
+func FormatFromFilename(filename string) (Format, error) {
 	switch strings.ToLower(filepath.Ext(filename)) {
 	case ".json":
 		return FormatJSON, nil
@@ -81,7 +81,7 @@ func ImportFromFile(filename string) (apnArray Array, err error) {
 		return nil, err
 	}
 
-	format, err := formatFromFilename(filename)
+	format, err := FormatFromFilename(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +168,7 @@ func ExportToWriter(apnArray Array, writer io.Writer, format Format) error {
 }
 
 func ExportToFile(apnArray Array, filename string) error {
-	format, err := formatFromFilename(filename)
+	format, err := FormatFromFilename(filename)
 	if err != nil {
 		return err
 	}

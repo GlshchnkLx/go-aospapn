@@ -18,6 +18,10 @@ func (array Array) Patch(other apnxml.Array) Array {
 	return Array{data: combine(array.data, other, apnxml.ObjectUpdatePatch)}
 }
 
+func (array Array) ApplyUpdate(other apnxml.Array) Array {
+	return Array{data: combine(array.data, other, apnxml.ObjectUpdateApply)}
+}
+
 func flatten(data apnxml.Array) apnxml.Array {
 	var result apnxml.Array
 	for groupIndex := range data {

@@ -71,6 +71,7 @@ Filtering and grouping:
 - `Array.DedupeByIdentity() Array`
 - `Array.Merge(other apnxml.Array) Array`
 - `Array.Patch(other apnxml.Array) Array`
+- `Array.ApplyUpdate(other apnxml.Array) Array`
 
 Iteration and transformation:
 
@@ -96,6 +97,10 @@ Lookup helpers:
 `Map` works like a real map over materialized records and returns a flat array.
 `Apply` and `ApplyEntries` preserve the current grouped/flat shape while
 mutating a clone.
+
+`Merge`, `Patch` and `ApplyUpdate` combine APN arrays by identity after
+flattening and regrouping. `ApplyUpdate` uses `apnxml.ObjectUpdateApply`; it is
+named differently from `Apply` to keep the mutator API unambiguous.
 
 ## Predicates
 
@@ -153,3 +158,14 @@ Helpers:
 - `EnsureMVNO`
 - `EnsureLimit`
 - `EnsureOther`
+
+Field patch helpers for CLI/config layers:
+
+- `SetObjectField(*apnxml.Object, string, string) error`
+- `SetObjectFieldExpr(*apnxml.Object, string) error`
+- `Array.UpdateByFilter(Predicate, *apnxml.Object, apnxml.ObjectUpdateMode) (PatchResult, error)`
+
+`SetObjectFieldExpr` accepts `section.field=value` expressions such as
+`base.profileID=42`, `bearer.type=ipv4v6` and
+`other.carrierEnabled=false`. `UpdateByFilter` applies an `apnxml.Object` patch
+to records matching a predicate while preserving clone-safety.

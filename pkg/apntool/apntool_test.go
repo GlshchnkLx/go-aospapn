@@ -413,3 +413,63 @@ func TestArrayDedupeAndMergePatch(t *testing.T) {
 		t.Fatal("patch must overwrite non-zero source fields")
 	}
 }
+
+func TestSetObjectFieldAndUpdateByFilter(t *testing.T) {
+	var patch apnxml.Object
+	for _, expr := range []string{
+		"base.profileID=42",
+		"bearer.type=ipv4v6",
+		"other.carrierEnabled=false",
+	} {
+		if err := SetObjectFieldExpr(&patch, expr); err != nil {
+			t.Fatalf("SetObjectFieldExpr returned error: %v", err)
+		}
+	}
+
+	result, err := From(testData()).UpdateByFilter(
+		And(ByPLMN(250, 1), ByType(apnxml.ObjectBaseTypeDefault)),
+		&patch,
+		apnxml.ObjectUpdatePatch,
+	)
+	if err != nil {
+		t.Fatalf("UpdateByFilter returned error: %v", err)
+	}
+	if result.Matched != 1 {
+		t.Fatalf("expected one matched record, got %d", result.Matched)
+	}
+
+	record, ok := result.Data.First(ByType(apnxml.ObjectBaseTypeDefault))
+	if !ok {
+		t.Fatal("expected patched record")
+	}
+	if record.Base == nil || record.Base.ProfileID == nil || *record.Base.ProfileID != 42 {
+		t.Fatal("profile ID was not patched")
+	}
+	if record.Bearer == nil || record.Bearer.Type == nil || *record.Bearer.Type != apnxml.ObjectBearerProtocolIPv4v6 {
+		t.Fatal("protocol was not patched")
+	}
+	if record.Other == nil || record.Other.CarrierEnabled == nil || *record.Other.CarrierEnabled != false {
+		t.Fatal("carrier enabled was not patched")
+	}
+}
+
+func TestApplyUpdateReplacesExistingFields(t *testing.T) {
+	apnType := apnxml.ObjectBaseTypeDefault
+	base := apnxml.Array{{
+		ObjectRoot: &apnxml.ObjectRoot{Carrier: "A", Mcc: intPtr(250), Mnc: intPtr(1)},
+		Base:       &apnxml.ObjectBase{Apn: stringPtr("internet"), Type: &apnType, ProfileID: intPtr(7)},
+	}}
+	patch := apnxml.Array{{
+		ObjectRoot: &apnxml.ObjectRoot{Carrier: "A", Mcc: intPtr(250), Mnc: intPtr(1)},
+		Base:       &apnxml.ObjectBase{Type: &apnType},
+	}}
+
+	result := From(base).ApplyUpdate(patch)
+	record, ok := result.First(ByType(apnType))
+	if !ok {
+		t.Fatal("expected record after apply")
+	}
+	if record.Base == nil || record.Base.Apn != nil || record.Base.ProfileID != nil {
+		t.Fatal("apply update must replace existing fields with source shape")
+	}
+}
