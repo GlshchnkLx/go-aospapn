@@ -1,0 +1,24 @@
+[
+  {
+    "carrierName": "Example RU C",
+    "carrierID": 1003,
+    "mcc": 250,
+    "mnc": 3,
+    "base": {
+      "apn": "internet.ru",
+      "type": ["default"]
+    },
+    "auth": {
+      "type": ["pap"],
+      "username": "user",
+      "password": "pass"
+    },
+    "bearer": {
+      "type": "ipv4v6",
+      "typeRoaming": "ipv4v6"
+    },
+    "other": {
+      "IsEnabled": true
+    }
+  }
+]

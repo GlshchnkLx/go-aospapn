@@ -1,0 +1,66 @@
+[
+  {
+    "carrierName": "Example RU C",
+    "carrierID": 1003,
+    "mcc": 250,
+    "mnc": 3,
+    "base": {
+      "apn": "internet.ru",
+      "type": ["default"]
+    },
+    "auth": {
+      "type": ["pap"],
+      "username": "user",
+      "password": "pass"
+    },
+    "bearer": {
+      "type": "ipv4v6",
+      "typeRoaming": "ipv4v6"
+    },
+    "other": {
+      "IsEnabled": true,
+      "IsVisible": true
+    }
+  },
+  {
+    "carrierName": "Example RU D",
+    "carrierID": 1004,
+    "mcc": 250,
+    "mnc": 4,
+    "base": {
+      "apn": "internet.ru",
+      "type": ["default"]
+    },
+    "auth": {
+      "type": ["pap"],
+      "username": "user",
+      "password": "pass"
+    },
+    "bearer": {
+      "type": "ipv4v6",
+      "typeRoaming": "ipv4v6"
+    },
+    "other": {
+      "networkTypeBitmask": ["lte", "nr"],
+      "IsEnabled": true
+    }
+  },
+  {
+    "carrierName": "Example RU A",
+    "carrierID": 1001,
+    "mcc": 250,
+    "mnc": 1,
+    "base": {
+      "apn": "ims.operator-a.ru",
+      "type": ["ims"]
+    },
+    "bearer": {
+      "type": "ipv6",
+      "typeRoaming": "ipv6"
+    },
+    "other": {
+      "IsEnabled": true,
+      "IsVisible": false
+    }
+  }
+]

@@ -1,0 +1,54 @@
+<apns version="8">
+	<apn
+        carrier="Example RU A Internet"
+        carrier_id="1001"
+        mcc="250"
+        mnc="01"
+        apn="old.operator-a.ru"
+        type="default"
+        protocol="IP"
+        user_visible="true"
+        user_editable="true"
+    />
+	<apn
+        carrier="Example RU A MMS"
+        carrier_id="1001"
+        mcc="250"
+        mnc="01"
+        apn="mms.operator-a.ru"
+        type="mms"
+        mmsc="http://mms.operator-a.ru"
+        mmsproxy="10.10.10.10"
+        mmsport="8080"
+    />
+	<apn
+        carrier="Example RU B Default"
+        carrier_id="1002"
+        mcc="250"
+        mnc="02"
+        apn="wap.operator-b.ru"
+        type="default"
+        user_visible="true"
+    />
+	<apn
+        carrier="Example RU C MMS"
+        carrier_id="1003"
+        mcc="250"
+        mnc="03"
+        apn="mms.operator-c.ru"
+        type="mms"
+        mmsc="http://mms.operator-c.ru"
+    />
+	<apn
+        carrier="Example US Operator"
+        carrier_id="2001"
+        mcc="310"
+        mnc="260"
+        apn="fast.t-mobile.com"
+        type="default,supl"
+        protocol="IPV4V6"
+        roaming_protocol="IPV4V6"
+        bearer_bitmask="lte|nr"
+        carrier_enabled="true"
+    />
+</apns>

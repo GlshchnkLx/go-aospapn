@@ -1,0 +1,25 @@
+[
+  {
+    "carrierName": "Vendor RU Demo",
+    "carrierID": 1099,
+    "mcc": 250,
+    "mnc": 99,
+    "base": {
+      "apn": "vendor.internet.ru",
+      "type": ["default"]
+    },
+    "auth": {
+      "type": ["pap"],
+      "username": "vendor",
+      "password": "vendor"
+    },
+    "bearer": {
+      "type": "ipv4v6",
+      "typeRoaming": "ipv4v6"
+    },
+    "other": {
+      "networkTypeBitmask": ["lte", "nr"],
+      "IsEnabled": true
+    }
+  }
+]

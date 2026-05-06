@@ -1,0 +1,43 @@
+<apns version="8">
+	<apn
+        carrier="Example RU C"
+        carrier_id="1003"
+        mcc="250"
+        mnc="03"
+        apn="internet.ru"
+        type="default"
+        authtype="1"
+        user="user"
+        password="pass"
+        protocol="IPV4V6"
+        roaming_protocol="IPV4V6"
+        carrier_enabled="true"
+        user_visible="true"
+    />
+	<apn
+        carrier="Example RU D"
+        carrier_id="1004"
+        mcc="250"
+        mnc="04"
+        apn="internet.ru"
+        type="default"
+        authtype="1"
+        user="user"
+        password="pass"
+        protocol="IPV4V6"
+        roaming_protocol="IPV4V6"
+        carrier_enabled="true"
+    />
+	<apn
+        carrier="Example RU A"
+        carrier_id="1001"
+        mcc="250"
+        mnc="01"
+        apn="ims.operator-a.ru"
+        type="ims"
+        protocol="IPV6"
+        roaming_protocol="IPV6"
+        carrier_enabled="true"
+        user_visible="false"
+    />
+</apns>
